@@ -98,6 +98,10 @@ func serveCmd(args []string) {
 		fmt.Fprintf(os.Stderr, "serve: ensure image: %v\n", err)
 		os.Exit(1)
 	}
+	if err := upstream.EnsureEnvdSource(context.Background(), upstream.EnvdSourceTag); err != nil {
+		fmt.Fprintf(os.Stderr, "serve: ensure envd-source image: %v\n", err)
+		os.Exit(1)
+	}
 
 	templateStore, err := template.NewStore(template.Options{Path: templateStorePath()})
 	if err != nil {
@@ -180,6 +184,8 @@ func doctorCmd(args []string) {
 func buildImageCmd(args []string) {
 	fs := flag.NewFlagSet("build-image", flag.ExitOnError)
 	tag := fs.String("tag", "edvabe/base:latest", "local tag to apply to the upstream base image")
+	envdSourceTag := fs.String("envd-source-tag", upstream.EnvdSourceTag, "local tag for the envd-source scratch image")
+	skipEnvdSource := fs.Bool("no-envd-source", false, "skip building edvabe/envd-source")
 	// --force is accepted for compatibility with docs/task description;
 	// Docker's layer cache already makes re-runs fast so the flag is a
 	// no-op. Users wanting a truly fresh build can `docker builder
@@ -191,6 +197,14 @@ func buildImageCmd(args []string) {
 		os.Exit(1)
 	}
 	fmt.Printf("built %s (envd @ %s)\n", *tag, upstream.EnvdSourceSHA)
+	if *skipEnvdSource {
+		return
+	}
+	if err := upstream.EnsureEnvdSource(context.Background(), *envdSourceTag); err != nil {
+		fmt.Fprintf(os.Stderr, "build-image: %v\n", err)
+		os.Exit(1)
+	}
+	fmt.Printf("built %s\n", *envdSourceTag)
 }
 
 func pullBaseCmd(args []string) {

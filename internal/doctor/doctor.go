@@ -14,6 +14,7 @@ import (
 
 	"github.com/moby/moby/client"
 
+	"github.com/contember/edvabe/internal/agent/upstream"
 	"github.com/contember/edvabe/internal/runtime/docker"
 	"github.com/contember/edvabe/internal/sandbox"
 )
@@ -33,6 +34,9 @@ type Options struct {
 	// BaseImage is the tag that `edvabe build-image` produces. Defaults
 	// to sandbox.DefaultImage.
 	BaseImage string
+	// EnvdSourceImage is the scratch image `edvabe build-image` produces
+	// alongside BaseImage. Defaults to upstream.EnvdSourceTag.
+	EnvdSourceImage string
 }
 
 // Run executes each check in order, prints an aligned table to w, and
@@ -46,11 +50,15 @@ func Run(ctx context.Context, w io.Writer, opts Options) error {
 	if opts.BaseImage == "" {
 		opts.BaseImage = sandbox.DefaultImage
 	}
+	if opts.EnvdSourceImage == "" {
+		opts.EnvdSourceImage = upstream.EnvdSourceTag
+	}
 
 	checks := []checkFunc{
 		checkDockerSocket,
 		checkDockerVersion,
-		checkBaseImage(opts.BaseImage),
+		checkImage(opts.BaseImage, "run `edvabe build-image`"),
+		checkImage(opts.EnvdSourceImage, "run `edvabe build-image`"),
 		checkPortFree(opts.Port),
 	}
 
@@ -140,7 +148,10 @@ func checkDockerVersion(ctx context.Context, state *runState) checkResult {
 	return checkResult{name: "Docker version", ok: true, detail: res.Version}
 }
 
-func checkBaseImage(tag string) checkFunc {
+// checkImage verifies that the given image tag is present in the local
+// Docker daemon. hint is surfaced in the failure detail line so users
+// get an actionable next step.
+func checkImage(tag, hint string) checkFunc {
 	return func(ctx context.Context, state *runState) checkResult {
 		name := fmt.Sprintf("%s image", tag)
 		if state.cli == nil {
@@ -157,7 +168,7 @@ func checkBaseImage(tag string) checkFunc {
 			return checkResult{
 				name:   name,
 				ok:     false,
-				detail: "not found — run `edvabe build-image`",
+				detail: "not found — " + hint,
 			}
 		}
 		return checkResult{name: name, ok: true, detail: ""}

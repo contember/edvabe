@@ -8,3 +8,9 @@ import _ "embed"
 
 //go:embed Dockerfile.base
 var DockerfileBase []byte
+
+//go:embed Dockerfile.envd-source
+var DockerfileEnvdSource []byte
+
+//go:embed edvabe-init.sh
+var EdvabeInitSh []byte

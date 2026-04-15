@@ -216,9 +216,10 @@ docker image inspect edvabe/envd-source:latest | jq '.[0].RepoTags'
 # both edvabe/base:latest and edvabe/envd-source:latest present
 
 # The final stage is `FROM scratch`, so there is no /bin/sh to exec
-# into. Verify the files exist by copying them out of a throwaway
-# container instead:
-cid=$(docker create edvabe/envd-source:latest)
+# into and no default CMD. Verify the files exist by copying them out
+# of a never-started container — `docker create` needs a command
+# argument but we do not actually run it.
+cid=$(docker create edvabe/envd-source:latest /usr/local/bin/envd)
 docker cp "$cid":/usr/local/bin/envd         /tmp/envd.bin
 docker cp "$cid":/usr/local/bin/edvabe-init  /tmp/edvabe-init.sh
 docker rm "$cid"

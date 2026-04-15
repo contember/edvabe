@@ -1,0 +1,35 @@
+# syntax=docker/dockerfile:1.5
+#
+# edvabe/envd-source — minimal "scratch" image holding the envd binary
+# and the edvabe-init wrapper. The template builder appends two
+# COPY --from=edvabe/envd-source lines to every generated user
+# Dockerfile to pull these files into the final image; no user template
+# needs to install envd itself.
+#
+# Stage 1 is the same envd builder we use in Dockerfile.base so a
+# single ENVD_SHA bump updates both images and the Docker layer cache
+# is shared between them on a clean rebuild.
+
+FROM golang:1.25.4-bookworm AS envd-builder
+
+ARG ENVD_SHA
+RUN test -n "${ENVD_SHA}" || (echo "ENVD_SHA build-arg is required" && exit 1)
+
+RUN git clone https://github.com/e2b-dev/infra.git /src \
+    && cd /src \
+    && git checkout "${ENVD_SHA}" \
+    && rm -f go.work go.work.sum
+
+WORKDIR /src/packages/envd
+RUN CGO_ENABLED=0 GOOS=linux go build \
+    -trimpath \
+    -ldflags="-s -w -X=main.commitSHA=${ENVD_SHA}" \
+    -o /envd .
+
+# Scratch final stage. Nothing runs here — this image exists purely as
+# a COPY --from source for user template builds. The shell script
+# inside /usr/local/bin/edvabe-init runs in the target template image,
+# which has a full /bin/sh, so the shebang resolves there.
+FROM scratch
+COPY --from=envd-builder --chmod=0755 /envd              /usr/local/bin/envd
+COPY --chmod=0755              edvabe-init.sh            /usr/local/bin/edvabe-init
