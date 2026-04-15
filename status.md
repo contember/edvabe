@@ -172,7 +172,7 @@ Legend: `[ ]` not started · `[~]` in progress · `[x]` done
       error on probe failure). Also updated the two in-repo
       stub AgentProviders (sandbox + control router) with the
       new method.
-- [ ] **Task 12 — Pause / snapshot / resume endpoints**
+- [~] **Task 12 — Pause / snapshot / resume endpoints**
 - [ ] **Task 13 — autoPause lifecycle on timeout**
 - [ ] **Task 14 — TypeScript template-build E2E**
 - [ ] **Task 15 — Webmaster chrome template acceptance**
@@ -301,6 +301,10 @@ Phase 1 is complete.
 
 Newest first. Keep entries tight. Reference commit hashes so future
 agents can `git show` the actual changes.
+
+### 2026-04-15 — claim task 12 (pause / snapshot / resume endpoints)
+
+Agent: Claude Opus 4.6 (1M context)
 
 ### 2026-04-15 — complete task 11 (readyCmd probe loop)
 
