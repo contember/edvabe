@@ -97,7 +97,25 @@ Legend: `[ ]` not started · `[~]` in progress · `[x]` done
       cursor+limit pagination. Router has a placeholder executor until
       task 9 lands the real docker pipe. 11 handler tests with a
       fake build manager.
-- [~] **Task 9 — Real build executor**
+- [x] **Task 9 — Real build executor** (37d9497, 2026-04-15)
+      `internal/template/builder/executor.go` — `DockerExecutor`
+      glues the pieces together: `Translate` the step array →
+      `PrepareContext` cached tars into `<BuildRoot>/<buildID>/ctx/`
+      → write Dockerfile → `runtime.BuildImage`. Logs from the docker
+      daemon stream live into the ring buffer via a new
+      `BuildRequest.LogWriter io.Writer` field; `docker/build.go`
+      parses the daemon's JSON-message stream line-by-line, forwards
+      `stream` fields to the writer, and surfaces the first `error`
+      field as the build failure. `sinkWriter` inside the executor
+      splits the writer's bytes on newlines and appends per-line
+      `LogEntry`s to the Manager's sink. Scratch dir (`EDVABE_BUILD_DIR`
+      or `~/.cache/edvabe/builds`) is removed after each build.
+      `cmd/edvabe/main.go` drops the placeholder executor and wires
+      the real one with the shared file cache and docker runtime.
+      5 new unit tests + 4 JSON-stream unit tests on the runtime side;
+      integration test (`-tags=integration`) builds a trivial
+      `alpine + RUN echo` template end-to-end and skips gracefully
+      when `edvabe/envd-source:latest` is not present.
 - [x] **Task 10 — Sandbox create integration** (a8d617a, 2026-04-15)
       `internal/sandbox/manager.go` now takes a `TemplateResolver`
       via `Options.Resolver`; at create time the manager consults it
@@ -243,6 +261,43 @@ Phase 1 is complete.
 
 Newest first. Keep entries tight. Reference commit hashes so future
 agents can `git show` the actual changes.
+
+### 2026-04-15 — complete task 9 (real build executor)
+
+Agent: Claude Opus 4.6 (1M context)
+
+- `runtime.BuildRequest` gained a `LogWriter io.Writer` field; the
+  docker runtime's `BuildImage` now decodes the daemon's JSON-line
+  stream and forwards `stream` fields to it, while surfacing the
+  first `error` field as the returned error. Phase-1 callers that
+  leave `LogWriter` nil keep the old "silent" behaviour.
+- `internal/template/builder/executor.go` implements the real
+  `DockerExecutor`. Run sequence: mkdir scratch → translate steps →
+  prepare cached file contexts → write Dockerfile → `BuildImage` with
+  a `sinkWriter` that splits bytes on newlines into `LogEntry`s.
+  Scratch dir is cleaned up unless `Keep` is set (used by unit tests
+  to inspect generated artifacts).
+- `cmd/edvabe/main.go` drops the placeholder executor and injects
+  the real `DockerExecutor` with the shared runtime + file cache;
+  `$EDVABE_BUILD_DIR` overrides the scratch root (default
+  `~/.cache/edvabe/builds`).
+- Acceptance: `go vet ./...` clean, `go test -race ./...` green
+  (all 13 package suites), `go test -tags=integration -v -run
+  TestDockerExecutorBuildsTrivialTemplate ./internal/template/builder/...`
+  green against a stub `edvabe/envd-source:latest`. The integration
+  test skips cleanly when the image is missing, so task 6 is still
+  the gate for the ordinary `-tags=integration` path.
+- **Quirk of verification**: the translator always appends
+  `COPY --from=edvabe/envd-source` into the generated Dockerfile,
+  which means the build path cannot be end-to-end tested until task 6
+  lands the real image. For this session I built a throwaway stub
+  image (alpine + two shell stubs at `/usr/local/bin/envd` and
+  `/usr/local/bin/edvabe-init`) so the integration test could exercise
+  the full path, then removed it. The stub image is not required for
+  any ordinary workflow.
+- Unblocks tasks 6 (trivial now — image pipeline is proven), 11
+  (readyCmd probe needs real builds to test against), 14 (TS E2E),
+  and 15 (webmaster chrome acceptance).
 
 ### 2026-04-15 — claim task 9 (real build executor)
 
