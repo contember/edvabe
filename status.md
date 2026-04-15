@@ -110,7 +110,7 @@ Legend: `[ ]` not started · `[~]` in progress · `[x]` done
       (create/kill, commands.run, files.write/read/list, pty, watchDir).
       Ran clean on the first attempt — task-12 server fixes (201 on create,
       `E2B_SANDBOX_URL` routing) carry over, so no new edvabe bugs surfaced.
-- [ ] **Task 14 — Doctor subcommand**
+- [~] **Task 14 — Doctor subcommand**
 - [ ] **Task 15 — Tag v0.1.0**
 
 ## Phase 2+ (not yet active)
@@ -123,6 +123,10 @@ Phase 1 is complete.
 
 Newest first. Keep entries tight. Reference commit hashes so future
 agents can `git show` the actual changes.
+
+### 2026-04-15 — claim task 14 (doctor subcommand)
+
+Agent: Claude Opus 4.6 (1M context)
 
 ### 2026-04-15 — claim task 13 (TypeScript SDK E2E test)
 
