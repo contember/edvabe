@@ -83,7 +83,7 @@ Legend: `[ ]` not started · `[~]` in progress · `[x]` done
       still-held entry, it gets a catch-up slice instead of an error.
       Per-build `Cancel` and `Wait` for shutdown paths. 15 unit tests
       (ring buffer + manager), `-race` clean.
-- [x] **Task 8 — Build start + status + logs endpoints** (pending, 2026-04-15)
+- [x] **Task 8 — Build start + status + logs endpoints** (d66d7ef, 2026-04-15)
       `internal/api/control/builds.go` + updated router.
       `POST /v2/templates/{id}/builds/{bid}` decodes
       `TemplateBuildStartV2`, resolves any `fromTemplate` parent
