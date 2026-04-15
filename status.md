@@ -33,7 +33,11 @@ Legend: `[ ]` not started · `[~]` in progress · `[x]` done
       shelling out to `docker pull`. `pull-base` subcommand replaces the
       old `fetch-envd` stub. Scope changed mid-task — see session log
       and decisions section.
-- [~] **Task 5 — Tag e2bdev/base as edvabe/base**
+- [x] **Task 5 — Tag e2bdev/base as edvabe/base** (16142e7, 2026-04-15)
+      `EnsureBaseImage(ctx, tag)` in `internal/agent/upstream/image.go`
+      wraps `PullBase` + `docker tag`. `build-image` subcommand wires
+      it with default `--tag edvabe/base:latest`. `--force` accepted
+      but no-op (pulls by digest are idempotent).
 - [ ] **Task 6 — envd-in-Docker smoke test** (gates open question Q3)
 - [ ] **Task 7 — Docker runtime implementation**
 - [ ] **Task 8 — Sandbox manager**
@@ -56,9 +60,24 @@ Phase 1 is complete.
 Newest first. Keep entries tight. Reference commit hashes so future
 agents can `git show` the actual changes.
 
-### 2026-04-15 — claim task 5 (tag e2bdev/base)
+### 2026-04-15 — complete task 5 (tag e2bdev/base)
 
 Agent: Claude Opus 4.6 (1M context)
+
+- Added `EnsureBaseImage(ctx, tag)` to `internal/agent/upstream/image.go`:
+  `PullBase` followed by `docker tag <BaseImageRef> <tag>`. Idempotent.
+- Wired `build-image` subcommand in `cmd/edvabe/main.go`: default
+  `--tag edvabe/base:latest`, `--force` accepted but a no-op (pulls by
+  digest are already idempotent — documented in the flag usage).
+- Acceptance: `go vet ./...` + `go build ./...` clean;
+  `docker rmi edvabe/base:latest` (clean slate);
+  `go run ./cmd/edvabe build-image` prints the tag mapping;
+  `docker images edvabe/base` shows `edvabe/base:latest` pointing at
+  the same image ID (`1565260ff3fe`) that task 4 pulled.
+- The task description's additional smoke step (run container, curl
+  `/health`) belongs to task 6 — skipped here.
+- Commits: `74b5fd0` (claim), `16142e7` (implementation).
+- No new open questions.
 
 ### 2026-04-15 — complete task 4 (pin e2bdev/base image)
 
