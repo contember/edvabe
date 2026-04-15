@@ -38,7 +38,7 @@ Legend: `[ ]` not started · `[~]` in progress · `[x]` done
       wraps `PullBase` + `docker tag`. `build-image` subcommand wires
       it with default `--tag edvabe/base:latest`. `--force` accepted
       but no-op (pulls by digest are idempotent).
-- [ ] **Task 6 — envd-in-Docker smoke test** (gates open question Q3)
+- [~] **Task 6 — envd-in-Docker smoke test** (gates open question Q3)
 - [ ] **Task 7 — Docker runtime implementation**
 - [ ] **Task 8 — Sandbox manager**
 - [ ] **Task 9 — Dispatch + reverse proxy**
@@ -59,6 +59,10 @@ Phase 1 is complete.
 
 Newest first. Keep entries tight. Reference commit hashes so future
 agents can `git show` the actual changes.
+
+### 2026-04-15 — claim task 6 (envd-in-Docker smoke test)
+
+Agent: Claude Opus 4.6 (1M context)
 
 ### 2026-04-15 — complete task 5 (tag e2bdev/base)
 
