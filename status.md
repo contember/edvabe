@@ -58,7 +58,7 @@ Legend: `[ ]` not started · `[~]` in progress · `[x]` done
       the store at `~/.local/share/edvabe/templates.json` (override via
       `EDVABE_STATE_DIR`). 11 new handler tests; Phase-1 router test
       updated for the new constructor.
-- [x] **Task 5 — File cache HTTP handlers** (pending, 2026-04-15)
+- [x] **Task 5 — File cache HTTP handlers** (a0a943b, 2026-04-15)
       `internal/api/control/files.go`: `GET /templates/{id}/files/{hash}`
       returns the SDK's TemplateBuildFileUpload shape
       (`{present, url?}`); on miss the URL points at an internal
