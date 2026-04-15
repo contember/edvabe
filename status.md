@@ -69,7 +69,16 @@ Legend: `[ ]` not started · `[~]` in progress · `[x]` done
       interface for deterministic timeout tests. Unit tests wire it
       up against `internal/runtime/noop` + a local stub agent;
       `-race` clean.
-- [~] **Task 9 — Dispatch + reverse proxy**
+- [x] **Task 9 — Dispatch + reverse proxy** (971265a, 2026-04-15)
+      `internal/api/` package: `parseHost` (modeled on upstream
+      `shared/pkg/proxy/host.go`), `NewRouter` for header/host
+      dispatch, `NewProxy` with `FlushInterval: -1` streaming
+      `httputil.ReverseProxy`. `SandboxLookup` and `AgentResolver`
+      declared as small local interfaces so tests inject fakes;
+      production wires through `*sandbox.Manager` and
+      `runtime.Runtime`. 9 unit tests + 11 parseHost subcases,
+      includes a timing-based assertion that chunks flow without
+      being coalesced by the proxy.
 - [ ] **Task 10 — Control plane: health + create + get**
 - [ ] **Task 11 — Control plane: list + delete + timeout + connect**
 - [ ] **Task 12 — Python SDK E2E test**
@@ -87,6 +96,73 @@ Phase 1 is complete.
 
 Newest first. Keep entries tight. Reference commit hashes so future
 agents can `git show` the actual changes.
+
+### 2026-04-15 — complete task 9 (dispatch + reverse proxy)
+
+Agent: Claude Opus 4.6 (1M context)
+
+- `parseHost` is a near-literal port of
+  `e2b-infra/packages/shared/pkg/proxy/host.go:41-66`, fetched via
+  `gh api repos/e2b-dev/infra/contents/...`. Simplified the return
+  shape from upstream's `(sandboxID, port uint64, error)` to
+  `(port, id string, ok bool)` because the dispatcher only wants a
+  binary "proxy or not" decision — the error detail never reaches
+  the client. Port stays a string so it goes straight into the
+  `E2b-Sandbox-Port` header.
+- `NewRouter` promotes a host-parsed subdomain into the header
+  pair so downstream handlers don't need to re-parse. Explicit
+  `E2b-Sandbox-Id` / `-Port` headers take precedence over the host
+  when both are present (matches upstream `GetTargetFromRequest`
+  which checks headers first).
+- `NewProxy` declares two local interfaces (`SandboxLookup`,
+  `AgentResolver`) rather than taking `*sandbox.Manager` and
+  `runtime.Runtime` directly. Minor deviation from the task's
+  signature sketch, but `*sandbox.Manager` and `runtime.Runtime`
+  satisfy them structurally so callers don't change — and fake
+  implementations in `proxy_test.go` avoid standing up a full
+  Manager just to test the HTTP layer.
+- Reverse proxy uses Go 1.20+'s `Rewrite` callback (not the
+  deprecated `Director`) and passes the resolved target URL through
+  a private context key. A single shared `ReverseProxy` is built
+  per handler instead of per request so the default HTTP transport
+  can reuse connections to the same agent.
+- `FlushInterval: -1` is explicit even though
+  `httputil.ReverseProxy` auto-detects Content-Length=-1 /
+  text/event-stream as streaming. Belt and suspenders, and
+  documents intent — Phase 2 code interpreter NDJSON depends on
+  this being correct.
+- Hop-by-hop header stripping is handled by
+  `httputil.ReverseProxy`'s own transport layer, not explicitly.
+  No manual `Connection`/`Upgrade`/`Transfer-Encoding` scrub needed.
+  Noted in the proxy doc comment so no one adds redundant scrubbing
+  later.
+- Error envelope is a private `writeErrorEnvelope` helper inside
+  `proxy.go` — task 10 owns the canonical
+  `internal/api/errors.go` and will consolidate. Kept local to
+  avoid pre-empting task 10 scope.
+- `TestProxyStreamsResponse` uses a timing assertion: the backend
+  sends `first\n`, sleeps 150ms, sends `second\n`. The test
+  records timestamps of each line-read from the proxied response
+  and asserts the first arrives well before 150ms and the gap
+  between them is at least 100ms. 50ms slack keeps it stable on
+  busy CI. If streaming regressed, both reads would come in at
+  ~150ms after request start, failing the first-line assertion.
+- Files:
+  - `internal/api/parsehost.go` — `parseHost(host) (port, id, ok)`.
+  - `internal/api/dispatch.go` — `NewRouter(control, proxy) http.Handler`,
+    `HeaderSandboxID` / `HeaderSandboxPort` consts.
+  - `internal/api/proxy.go` — `SandboxLookup`, `AgentResolver`,
+    `NewProxy`, local `writeErrorEnvelope`.
+  - `internal/api/parsehost_test.go` — 11 subcases.
+  - `internal/api/dispatch_test.go` — 4 routing tests.
+  - `internal/api/proxy_test.go` — 5 tests including streaming.
+- Acceptance:
+  - `go vet ./...` clean, `go build ./...` clean.
+  - `go test ./internal/api/...` passes all 9 top-level tests.
+  - `go test -race ./internal/api/...` clean.
+  - `go test ./...` green across the full unit suite.
+- Commits: `39acfe1` (claim), `971265a` (implementation).
+- No new open questions.
 
 ### 2026-04-15 — claim task 9 (dispatch + reverse proxy)
 
