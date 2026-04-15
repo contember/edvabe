@@ -103,7 +103,7 @@ Legend: `[ ]` not started · `[~]` in progress · `[x]` done
       documented that clients must set `E2B_SANDBOX_URL=http://localhost:3000`
       so the SDK skips `https://49983-<id>.<domain>` host synthesis and
       routes through edvabe using the `E2b-Sandbox-Id`/`Port` headers.
-- [ ] **Task 13 — TypeScript SDK E2E test**
+- [~] **Task 13 — TypeScript SDK E2E test**
 - [ ] **Task 14 — Doctor subcommand**
 - [ ] **Task 15 — Tag v0.1.0**
 
@@ -117,6 +117,10 @@ Phase 1 is complete.
 
 Newest first. Keep entries tight. Reference commit hashes so future
 agents can `git show` the actual changes.
+
+### 2026-04-15 — claim task 13 (TypeScript SDK E2E test)
+
+Agent: Claude Opus 4.6 (1M context)
 
 ### 2026-04-15 — claim task 12 (Python SDK E2E test)
 
