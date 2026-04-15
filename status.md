@@ -72,7 +72,7 @@ Legend: `[ ]` not started · `[~]` in progress · `[x]` done
       `~/.cache/edvabe/template-files/` (override via `EDVABE_CACHE_DIR`)
       and a random-secret 10-minute signer. 10 new handler tests cover
       present/absent, token expiry, hash mismatch, and API-key bypass.
-- [ ] **Task 6 — envd-source scratch image**
+- [~] **Task 6 — envd-source scratch image**
 - [x] **Task 7 — BuildManager state machine** (bfdf7e3, 2026-04-15)
       `internal/template/builder/manager.go` + `ringbuf.go`. Async
       `Manager` with one goroutine per build, state machine
@@ -261,6 +261,10 @@ Phase 1 is complete.
 
 Newest first. Keep entries tight. Reference commit hashes so future
 agents can `git show` the actual changes.
+
+### 2026-04-15 — claim task 6 (envd-source scratch image)
+
+Agent: Claude Opus 4.6 (1M context)
 
 ### 2026-04-15 — complete task 9 (real build executor)
 
