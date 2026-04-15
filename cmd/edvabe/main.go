@@ -12,6 +12,7 @@ import (
 	"github.com/contember/edvabe/internal/agent/upstream"
 	api "github.com/contember/edvabe/internal/api"
 	"github.com/contember/edvabe/internal/api/control"
+	"github.com/contember/edvabe/internal/doctor"
 	"github.com/contember/edvabe/internal/runtime/docker"
 	"github.com/contember/edvabe/internal/sandbox"
 )
@@ -114,8 +115,17 @@ func serveCmd(args []string) {
 
 func doctorCmd(args []string) {
 	fs := flag.NewFlagSet("doctor", flag.ExitOnError)
+	port := fs.Int("port", 3000, "port `edvabe serve` will bind — checked for availability")
+	image := fs.String("image", sandbox.DefaultImage, "base image tag to look for")
 	_ = fs.Parse(args)
-	fmt.Fprintln(os.Stderr, "doctor: not implemented — see docs/08-phase1-checklist.md task 14")
+
+	err := doctor.Run(context.Background(), os.Stdout, doctor.Options{
+		Port:      *port,
+		BaseImage: *image,
+	})
+	if err != nil {
+		os.Exit(1)
+	}
 }
 
 func buildImageCmd(args []string) {
