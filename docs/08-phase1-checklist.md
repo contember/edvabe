@@ -445,8 +445,13 @@ will (or won't) work.
   a table and exits non-zero on failure.
 - Checks: Docker socket reachable, Docker version ≥ 20.10,
   `edvabe/base:latest` present (suggests `edvabe build-image` if not),
-  port 3000 free, envd binary cache populated.
+  port 3000 free.
 - `cmd/edvabe/main.go` wires `doctor` subcommand.
+
+The original task description also listed an "envd binary cache" check,
+but task 5 replaced the envd download/cache strategy with an in-Docker
+multi-stage build baked into `edvabe/base`. The base-image check (#3)
+already covers that codepath, so the envd cache check has been removed.
 
 **Acceptance.**
 
