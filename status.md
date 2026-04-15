@@ -22,7 +22,7 @@ Legend: `[ ]` not started · `[~]` in progress · `[x]` done
       `SandboxHandle`, `Stats`, `BuildRequest` per docs/05-architecture.md.
       `internal/runtime/noop` is an in-memory impl with a `HasImage` /
       `IsPaused` test helper; used by higher-layer unit tests.
-- [ ] **Task 3 — AgentProvider interface**
+- [~] **Task 3 — AgentProvider interface**
 - [ ] **Task 4 — Upstream envd: binary fetcher**
 - [ ] **Task 5 — Upstream envd: base image builder**
 - [ ] **Task 6 — envd-in-Docker smoke test** (gates open question Q3)
@@ -46,6 +46,10 @@ Phase 1 is complete.
 
 Newest first. Keep entries tight. Reference commit hashes so future
 agents can `git show` the actual changes.
+
+### 2026-04-15 — claim task 3 (AgentProvider interface)
+
+Agent: Claude Opus 4.6 (1M context)
 
 ### 2026-04-15 — complete task 2 (Runtime interface)
 
