@@ -8,6 +8,7 @@ package runtime
 
 import (
 	"context"
+	"io"
 	"time"
 )
 
@@ -94,4 +95,10 @@ type BuildRequest struct {
 	Dockerfile string
 	BuildArgs  map[string]string
 	Labels     map[string]string
+	// LogWriter, if non-nil, receives the daemon's build output line by
+	// line as the build progresses (one logical docker step per line,
+	// trailing newline stripped). Used by the template builder to
+	// stream progress into its per-build ring buffer. Nil discards
+	// output, matching the Phase 1 behaviour.
+	LogWriter io.Writer
 }
