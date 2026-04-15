@@ -93,7 +93,16 @@ Legend: `[ ]` not started · `[~]` in progress · `[x]` done
       `POST /sandboxes/{id}/connect` on top of task 10. List supports
       `state`, `limit`, and `nextToken`; timeout/connect translate
       manager `ErrNotFound`/`ErrExpired` into 404/410 envelopes.
-- [~] **Task 12 — Python SDK E2E test**
+- [x] **Task 12 — Python SDK E2E test** (56095ec, 2026-04-15)
+      `test/e2e/python/{conftest.py,test_basic.py,requirements.txt}` + `Makefile`
+      target `test-e2e-python` boot edvabe, wait for `/health`, run pytest in a
+      local venv, tear down. Six tests cover create/kill, commands.run,
+      files.write/read/list, PTY (via `sbx.pty`), and watch_dir. Fixed two
+      real bugs surfaced by the SDK: (1) `POST /sandboxes` now returns 201
+      (was 200 — SDK parser silently returned `parsed=None` on 200); (2)
+      documented that clients must set `E2B_SANDBOX_URL=http://localhost:3000`
+      so the SDK skips `https://49983-<id>.<domain>` host synthesis and
+      routes through edvabe using the `E2b-Sandbox-Id`/`Port` headers.
 - [ ] **Task 13 — TypeScript SDK E2E test**
 - [ ] **Task 14 — Doctor subcommand**
 - [ ] **Task 15 — Tag v0.1.0**
@@ -112,6 +121,55 @@ agents can `git show` the actual changes.
 ### 2026-04-15 — claim task 12 (Python SDK E2E test)
 
 Agent: Claude Opus 4.6 (1M context)
+
+### 2026-04-15 — complete task 12 (Python SDK E2E test)
+
+Agent: Claude Opus 4.6 (1M context)
+
+- Added first real SDK E2E under `test/e2e/python/` with a `Makefile`
+  target that builds the binary, boots `edvabe serve --port 3000` in the
+  background, polls `/health` until ready, runs pytest in a local venv,
+  and reliably tears down the serve process via a bash `trap`.
+- Test suite: six tests mapping to the Phase-1 acceptance hot path.
+  `test_create_and_kill`, `test_commands_run_echo`, `test_files_write_read`,
+  `test_files_list`, `test_pty` (via `sbx.pty.create` + background `wait`
+  thread feeding an `on_pty` callback — the 06-phases snippet's
+  `commands.run(pty=True)` form does not exist in the current SDK),
+  `test_watch_dir` (via `WatchHandle.get_new_events` polling — snippet's
+  context-manager iterator form likewise does not exist). Left the
+  snippet divergences in the test file header comment.
+- **Bug 1 — create returns 200 instead of 201.** The generated SDK
+  client in `post_sandboxes.py` only populates `parsed` on 201, not 200,
+  so every `Sandbox.create` blew up with `Body of the request is None`.
+  Flipped `createSandbox` to write `http.StatusCreated` explicitly and
+  updated the control-plane unit tests.
+- **Bug 2 — SDK data plane defaults to HTTPS host form.** Without any
+  extra env vars, the SDK builds `https://49983-<sandbox_id>.<E2B_DOMAIN>`
+  which (a) uses HTTPS and (b) resolves to port 3000 via `*.localhost`
+  but TLS is not served. First run failed with
+  `SSL: RECORD_LAYER_FAILURE`. Fix is client-side: set
+  `E2B_SANDBOX_URL=http://localhost:3000`, which short-circuits
+  `get_sandbox_url` while still sending `E2b-Sandbox-Id` /
+  `E2b-Sandbox-Port` headers that edvabe's router dispatches on.
+  The Makefile target sets this, and the test header documents it.
+  This is an onboarding env var users must set — docs update is out of
+  scope for task 12 but should land before v0.1.0.
+- Files:
+  - `test/e2e/python/requirements.txt` (e2b==2.20.0, pytest==8.3.4)
+  - `test/e2e/python/conftest.py`
+  - `test/e2e/python/test_basic.py`
+  - `Makefile` (new `test-e2e-python` target)
+  - `internal/api/control/sandboxes.go` (201 on create)
+  - `internal/api/control/router_test.go` (expect 201)
+- Acceptance:
+  - `make test-e2e-python` → 6 passed.
+  - `go test ./...` passes.
+- Commits: `56095ec` (implementation).
+- Open follow-ups:
+  - Update user-facing docs (README / 03-api-surface.md) to mention
+    `E2B_SANDBOX_URL` before tag 0.1.0. Not part of task 12.
+  - Task 13 (TypeScript E2E) will likely hit the same two bugs with the
+    same fixes.
 
 ### 2026-04-15 — claim task 11 (control plane: list + delete + timeout + connect)
 
