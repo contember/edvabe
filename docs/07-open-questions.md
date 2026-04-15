@@ -240,3 +240,53 @@ upgrade flow?
   one.
 
 Document the upgrade flow in `edvabe doctor --help`.
+
+## Q15: Back-compat with older E2B SDK versions
+
+**The question.** v0.1.0 E2E tests pin `e2b==2.20.0` (Python) and
+`e2b@2.19.0` (TS). The internal **webmaster** project is on
+`e2b@2.6.0` + `@e2b/code-interpreter@2.3.3`. Do we support all SDK
+versions back to (at least) 2.0.0, or only the "current" 2.19+?
+
+**Why it matters.** If wire shapes drifted between 2.6 and 2.19 —
+field renames, new required fields, status-code flips like the 200 →
+201 we hit in task 12 — a webmaster dropin fails even after pause/
+resume lands in Phase 3. The symptom will look like our task-12
+"`parsed=None`" error: silent failure deep inside the SDK's generated
+client rather than an edvabe-side error.
+
+**Current leaning.** Before starting Phase 3 (or the earliest phase
+that targets webmaster compat), run the Python + TS E2E suites against
+the old SDK versions webmaster pins, note every divergence, and pick a
+"minimum supported SDK" bound in CHANGELOG. If a divergence is small
+(status code, field name), fix edvabe to serve both shapes. If it's a
+semantic change (e.g. `betaCreate` body differs), pin webmaster forward
+instead — it's a first-party project.
+
+**Confirm when.** Task-boundary check at the start of Phase 2 or 3,
+whichever targets webmaster first.
+
+## Q16: `Template.build()` wire shape
+
+**The question.** Webmaster's `containers/templates/chrome/build.ts`
+uses the JS SDK's `Template.build({ alias, memoryMB, … })` API to
+build the `webmaster-sandbox-chrome` image. Phase 3's
+`POST /v3/templates → /v2/templates/{id}/builds/{buildID}` is designed
+against the OpenAPI `TemplateBuildStartV2` schema. Do those two
+actually line up on the wire?
+
+**Why it matters.** Phase 3's template builder is a
+~1000-LOC subpackage. If `Template.build()` sends something other than
+`TemplateBuildStartV2` (maybe: a different path, a different envelope,
+a streaming upload of the local Docker build context) we burn most of
+that budget on the wrong wire. And we won't know until a webmaster
+build command fails halfway through.
+
+**Current leaning.** Before writing any builder code in Phase 3,
+intercept one `Template.build()` call from webmaster (tcpdump against
+`cloud.e2b.dev`, or patch the SDK locally to log the request) and
+compare against `TemplateBuildStartV2` in the OpenAPI spec. If they
+diverge, the divergence goes into this question's resolution notes
+and Phase 3 scope gets updated before any implementation starts.
+
+**Confirm when.** Phase 3 entry, before touching `internal/template/`.

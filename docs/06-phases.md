@@ -8,6 +8,19 @@ Phase 1. Because edvabe does not reimplement filesystem/process/PTY/watch
 operations (envd does), they all work the moment the reverse proxy works.
 That's the whole reason this decomposition is shorter than earlier drafts.
 
+### Phase ordering is not carved in stone
+
+The numbering below reflects the order features were originally sized in,
+not a hard commitment. If a specific downstream consumer drives the
+roadmap, it can shift. Concretely: the internal Contember **webmaster**
+project (see v0.1.0 session log, 2026-04-15) needs **pause/resume +
+custom templates** (Phase 3) but does **not** need the code interpreter
+overlay (Phase 2) — it imports `Sandbox` from `@e2b/code-interpreter`
+purely for the re-export and never calls `runCode`. If webmaster becomes
+the driving consumer, Phase 3 should come before Phase 2 or the two
+should be split (e.g. "Phase 2a — pause" before code interpreter). Keep
+this in mind when picking up the next task after Phase 1.
+
 ---
 
 ## Phase 1 — "Single binary runs everything"
@@ -241,6 +254,19 @@ pause/snapshot sandboxes to save state.
 - `POST /sandboxes/{id}/pause` → `docker pause`.
 - `POST /sandboxes/{id}/connect` handles the "was paused" branch via
   `docker unpause`.
+- `NewSandbox.autoPause` and
+  `NewSandbox.lifecycle.onTimeout == "pause"` on `POST /sandboxes`:
+  when set, the sandbox manager calls `docker pause` on timeout
+  instead of `docker rm --force`, and `/connect` resumes via
+  `docker unpause`. This is load-bearing for the webmaster consumer
+  (`BaseE2BSandbox.betaCreate(template, { autoPause: true, … })` in
+  `packages/worker/src/lib/sandbox/e2b-sandbox.ts`). Without it the
+  idle-pause + reconnect loop breaks the first time the sandbox times
+  out.
+- `Sandbox.betaCreate` / `Sandbox.betaPause` wire shapes — verify they
+  match the `POST /sandboxes` and `POST /sandboxes/{id}/pause` the
+  stable SDK paths produce before implementing, since webmaster uses
+  the beta flavor.
 - `GET /templates`, `GET /templates/{id}`,
   `GET /templates/{id}/builds/{buildID}/status`,
   `GET /templates/{id}/builds/{buildID}/logs`,
