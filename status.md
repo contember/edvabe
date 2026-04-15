@@ -72,7 +72,29 @@ Legend: `[ ]` not started · `[~]` in progress · `[x]` done
       `~/.cache/edvabe/template-files/` (override via `EDVABE_CACHE_DIR`)
       and a random-secret 10-minute signer. 10 new handler tests cover
       present/absent, token expiry, hash mismatch, and API-key bypass.
-- [~] **Task 6 — envd-source scratch image**
+- [x] **Task 6 — envd-source scratch image** (28cb81c, 2026-04-15)
+      `assets/Dockerfile.envd-source` + `assets/edvabe-init.sh` shipped
+      via `//go:embed`. `internal/agent/upstream/envd_source.go`
+      `EnsureEnvdSource` packs both files into a stdin tar stream and
+      shells out to `docker build - -f Dockerfile.envd-source`. Stage 1
+      is the same envd-builder as `Dockerfile.base`, so a clean rebuild
+      of both images shares the Go compile step via Docker's layer
+      cache. Stage 2 is `FROM scratch` — nothing runs inside, the image
+      exists only as a COPY --from source for user templates.
+      `cmd/edvabe/main.go` calls `EnsureEnvdSource` at serve start and
+      from `build-image` (new `--envd-source-tag` / `--no-envd-source`
+      flags). `internal/doctor` grows a parallel `edvabe/envd-source`
+      check via a generalized `checkImage(tag, hint)` helper. 1 unit
+      test over the tar-context builder. Acceptance: full
+      `edvabe build-image` run produces both images cached-clean in
+      seconds, `docker create edvabe/envd-source /usr/local/bin/envd` +
+      `docker cp` extracts the 10 MB static envd ELF and the shell
+      script. `go test -tags=integration ./internal/template/builder/...`
+      now runs the task-9 executor end-to-end against the real
+      envd-source image in 0.6 s. Separately committed a doc fix to
+      the task-6 acceptance recipe: scratch images have no /bin/sh so
+      `--entrypoint sh` can never succeed, and `docker create` needs a
+      command arg since scratch has no default CMD (005cefa, 28cb81c).
 - [x] **Task 7 — BuildManager state machine** (bfdf7e3, 2026-04-15)
       `internal/template/builder/manager.go` + `ringbuf.go`. Async
       `Manager` with one goroutine per build, state machine
@@ -261,6 +283,42 @@ Phase 1 is complete.
 
 Newest first. Keep entries tight. Reference commit hashes so future
 agents can `git show` the actual changes.
+
+### 2026-04-15 — complete task 6 (envd-source scratch image)
+
+Agent: Claude Opus 4.6 (1M context)
+
+- `assets/Dockerfile.envd-source` + `assets/edvabe-init.sh` —
+  multi-stage scratch image plus the PID-1 wrapper from the Phase 3
+  scope. Both ship inside the binary via `//go:embed`.
+- `internal/agent/upstream/envd_source.go` —
+  `EnsureEnvdSource(ctx, tag)` packs the Dockerfile + init script
+  into a tar stream and pipes it through `docker build -` with
+  `-f Dockerfile.envd-source`. Reuses the `EnvdSourceSHA` pin so
+  stage 1 shares the envd-builder layer with `EnsureBaseImage`.
+- `cmd/edvabe/main.go` — serve now runs `EnsureEnvdSource` after
+  `EnsureImage`; `build-image` builds both images (flags:
+  `--envd-source-tag`, `--no-envd-source`).
+- `internal/doctor/doctor.go` — generalized the image check into
+  `checkImage(tag, hint)` and added a second check for
+  `edvabe/envd-source:latest`. `edvabe doctor` now prints five rows.
+- **Fixed the task description** in
+  `docs/09-phase3-checklist.md` (005cefa, then refined in 28cb81c):
+  the original acceptance used `docker run --entrypoint sh` which
+  cannot work on a scratch image (no /bin/sh), and the replacement
+  `docker create` needs a command argument because scratch has no
+  default CMD. New recipe uses
+  `docker create edvabe/envd-source /usr/local/bin/envd` + `docker cp`.
+- Acceptance: `go vet ./...` clean, `go test -race ./...` green (13
+  package suites), `./bin/edvabe build-image` produced both
+  edvabe/base + edvabe/envd-source, the 10 MB static envd ELF + the
+  shell script were extracted successfully, `./bin/edvabe doctor`
+  prints 5 OK rows. Bonus: `go test -tags=integration -v
+  ./internal/template/builder/...` now runs task 9's executor
+  end-to-end against the real envd-source and builds a trivial
+  alpine+RUN template in 0.6 s — verifying the two tasks compose.
+- Unblocks tasks 11 (readyCmd probe can now run against real
+  user-built images), 14 (TS E2E), 15 (webmaster chrome).
 
 ### 2026-04-15 — claim task 6 (envd-source scratch image)
 
