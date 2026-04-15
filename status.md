@@ -97,7 +97,7 @@ Legend: `[ ]` not started · `[~]` in progress · `[x]` done
       cursor+limit pagination. Router has a placeholder executor until
       task 9 lands the real docker pipe. 11 handler tests with a
       fake build manager.
-- [ ] **Task 9 — Real build executor**
+- [~] **Task 9 — Real build executor**
 - [x] **Task 10 — Sandbox create integration** (a8d617a, 2026-04-15)
       `internal/sandbox/manager.go` now takes a `TemplateResolver`
       via `Options.Resolver`; at create time the manager consults it
@@ -243,6 +243,10 @@ Phase 1 is complete.
 
 Newest first. Keep entries tight. Reference commit hashes so future
 agents can `git show` the actual changes.
+
+### 2026-04-15 — claim task 9 (real build executor)
+
+Agent: Claude Opus 4.6 (1M context)
 
 ### 2026-04-15 — phase 3 tasks 1-5, 7-8, 10 completed (foundation)
 
