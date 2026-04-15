@@ -153,7 +153,7 @@ Legend: `[ ]` not started · `[~]` in progress · `[x]` done
       the persisted `imageTag` over the "edvabe/user-..." derivation.
       `cmd/edvabe/main.go` wires the adapter into serve. 4 new
       resolver tests + 4 new manager tests.
-- [ ] **Task 11 — readyCmd probe loop**
+- [~] **Task 11 — readyCmd probe loop**
 - [ ] **Task 12 — Pause / snapshot / resume endpoints**
 - [ ] **Task 13 — autoPause lifecycle on timeout**
 - [ ] **Task 14 — TypeScript template-build E2E**
@@ -283,6 +283,10 @@ Phase 1 is complete.
 
 Newest first. Keep entries tight. Reference commit hashes so future
 agents can `git show` the actual changes.
+
+### 2026-04-15 — claim task 11 (readyCmd probe loop)
+
+Agent: Claude Opus 4.6 (1M context)
 
 ### 2026-04-15 — complete task 6 (envd-source scratch image)
 
