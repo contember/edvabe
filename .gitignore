@@ -1,0 +1,25 @@
+# Binaries
+bin/
+*.test
+*.out
+
+# Coverage
+coverage.out
+coverage.html
+
+# Editor
+.idea/
+.vscode/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Env
+.env
+.env.local
+.envrc
+
+# Project-specific
+assets/envd-*
