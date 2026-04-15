@@ -79,14 +79,16 @@ func buildImageCmd(args []string) {
 	fs := flag.NewFlagSet("build-image", flag.ExitOnError)
 	tag := fs.String("tag", "edvabe/base:latest", "local tag to apply to the upstream base image")
 	// --force is accepted for compatibility with docs/task description;
-	// pulls by digest are already idempotent so the flag is a no-op.
-	_ = fs.Bool("force", false, "re-pull even if already present (no-op — pulls by digest are idempotent)")
+	// Docker's layer cache already makes re-runs fast so the flag is a
+	// no-op. Users wanting a truly fresh build can `docker builder
+	// prune` or `docker rmi edvabe/base:latest` first.
+	_ = fs.Bool("force", false, "no-op; Docker's build cache handles re-runs")
 	_ = fs.Parse(args)
 	if err := upstream.EnsureBaseImage(context.Background(), *tag); err != nil {
 		fmt.Fprintf(os.Stderr, "build-image: %v\n", err)
 		os.Exit(1)
 	}
-	fmt.Printf("tagged %s as %s\n", upstream.BaseImageRef(), *tag)
+	fmt.Printf("built %s (envd @ %s)\n", *tag, upstream.EnvdSourceSHA)
 }
 
 func pullBaseCmd(args []string) {

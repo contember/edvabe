@@ -1,0 +1,27 @@
+# syntax=docker/dockerfile:1.5
+#
+# edvabe/base — upstream e2bdev/base plus envd built from source.
+# See docs/07-open-questions.md#Q2 for why we layer envd on top of
+# the public base image instead of shipping either side separately.
+
+FROM golang:1.25.4-bookworm AS envd-builder
+
+ARG ENVD_SHA
+RUN test -n "${ENVD_SHA}" || (echo "ENVD_SHA build-arg is required" && exit 1)
+
+RUN git clone https://github.com/e2b-dev/infra.git /src \
+    && cd /src \
+    && git checkout "${ENVD_SHA}" \
+    && rm -f go.work go.work.sum
+
+WORKDIR /src/packages/envd
+RUN CGO_ENABLED=0 GOOS=linux go build \
+    -trimpath \
+    -ldflags="-s -w -X=main.commitSHA=${ENVD_SHA}" \
+    -o /envd .
+
+FROM docker.io/e2bdev/base@sha256:11349f027b11281645fd8b7874e94053681a0d374508067c16bf15b00e1161b2
+
+COPY --from=envd-builder /envd /usr/bin/envd
+EXPOSE 49983
+CMD ["/usr/bin/envd", "-isnotfc"]
