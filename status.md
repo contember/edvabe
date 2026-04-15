@@ -73,7 +73,16 @@ Legend: `[ ]` not started · `[~]` in progress · `[x]` done
       and a random-secret 10-minute signer. 10 new handler tests cover
       present/absent, token expiry, hash mismatch, and API-key bypass.
 - [ ] **Task 6 — envd-source scratch image**
-- [ ] **Task 7 — BuildManager state machine**
+- [x] **Task 7 — BuildManager state machine** (pending, 2026-04-15)
+      `internal/template/builder/manager.go` + `ringbuf.go`. Async
+      `Manager` with one goroutine per build, state machine
+      `waiting → building → ready|error`, injectable `Executor`
+      interface so tests can drive it without Docker. Bounded ring
+      buffer (default 5000 entries) with snap-forward semantics for
+      stale cursors — if a caller's cursor is older than the earliest
+      still-held entry, it gets a catch-up slice instead of an error.
+      Per-build `Cancel` and `Wait` for shutdown paths. 15 unit tests
+      (ring buffer + manager), `-race` clean.
 - [ ] **Task 8 — Build start + status + logs endpoints**
 - [ ] **Task 9 — Real build executor**
 - [ ] **Task 10 — Sandbox create integration**
