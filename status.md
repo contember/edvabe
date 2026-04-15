@@ -18,8 +18,13 @@ code interpreter overlay — see `docs/06-phases.md:11-22`. Phase 2
 
 Legend: `[ ]` not started · `[~]` in progress · `[x]` done
 
-- [~] **Task 1 — Template store skeleton**
-- [ ] **Task 2 — Content-addressed file cache**
+- [x] **Task 1 — Template store skeleton** (pending, 2026-04-15)
+      `internal/template/` package: `Template`/`Build`/`BuildStatus`/`Step`
+      types, ID generator (`tpl_` / `bld_` prefixes), and a JSON-backed
+      `Store` with mutex-guarded CRUD, alias resolution, build append/
+      update. Atomic persistence via `*.part → rename`. 12 unit tests
+      cover round-trip, alias conflict, concurrent reads; `-race` clean.
+- [~] **Task 2 — Content-addressed file cache**
 - [ ] **Task 3 — Step → Dockerfile translator**
 - [ ] **Task 4 — Template CRUD HTTP endpoints**
 - [ ] **Task 5 — File cache HTTP handlers**
