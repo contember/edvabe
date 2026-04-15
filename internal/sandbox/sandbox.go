@@ -23,6 +23,18 @@ const (
 	StatePaused State = "paused"
 )
 
+// OnTimeoutMode controls what EnforceTimeouts does to a sandbox once
+// its ExpiresAt has lapsed. The default (OnTimeoutKill) destroys the
+// container; OnTimeoutPause freezes it via runtime.Pause and leaves it
+// in the registry for a later /connect to resume. Values are the same
+// strings the E2B SDK sends in NewSandbox.lifecycle.onTimeout.
+type OnTimeoutMode string
+
+const (
+	OnTimeoutKill  OnTimeoutMode = "kill"
+	OnTimeoutPause OnTimeoutMode = "pause"
+)
+
 // Sandbox is edvabe's view of one active sandbox. Fields mutated over
 // the sandbox's lifetime (State, ExpiresAt) are guarded by Manager.mu.
 // Callers that receive a *Sandbox from the Manager MUST treat it as
@@ -36,6 +48,7 @@ type Sandbox struct {
 	EnvdToken    string
 	TrafficToken string
 	State        State
+	OnTimeout    OnTimeoutMode
 	Metadata     map[string]string
 	EnvVars      map[string]string
 	CreatedAt    time.Time

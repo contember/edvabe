@@ -290,6 +290,94 @@ func TestPauseUnknownSandboxReturns404(t *testing.T) {
 	}
 }
 
+func TestCreateWithAutoPauseReflectsInDetail(t *testing.T) {
+	h := newTestControlRouter(t)
+
+	createReq := httptest.NewRequest(http.MethodPost, "/sandboxes", strings.NewReader(`{"templateID":"base","timeout":60,"autoPause":true}`))
+	createReq.Header.Set("X-API-Key", "dev")
+	createRec := httptest.NewRecorder()
+	h.ServeHTTP(createRec, createReq)
+	if createRec.Code != http.StatusCreated {
+		t.Fatalf("create status = %d body=%s", createRec.Code, createRec.Body.String())
+	}
+	var created sandboxResponse
+	if err := json.NewDecoder(createRec.Body).Decode(&created); err != nil {
+		t.Fatalf("decode create: %v", err)
+	}
+
+	getReq := httptest.NewRequest(http.MethodGet, "/sandboxes/"+created.SandboxID, nil)
+	getReq.Header.Set("X-API-Key", "dev")
+	getRec := httptest.NewRecorder()
+	h.ServeHTTP(getRec, getReq)
+	if getRec.Code != http.StatusOK {
+		t.Fatalf("get status = %d body=%s", getRec.Code, getRec.Body.String())
+	}
+	var detail sandboxDetailResponse
+	if err := json.NewDecoder(getRec.Body).Decode(&detail); err != nil {
+		t.Fatalf("decode detail: %v", err)
+	}
+	if detail.Lifecycle.OnTimeout != string(sandbox.OnTimeoutPause) {
+		t.Errorf("lifecycle.onTimeout = %q, want %q", detail.Lifecycle.OnTimeout, sandbox.OnTimeoutPause)
+	}
+	if !detail.Lifecycle.AutoResume.Enabled {
+		t.Error("lifecycle.autoResume.enabled = false, want true for autoPause sandbox")
+	}
+}
+
+func TestCreateWithLifecycleOnTimeoutPause(t *testing.T) {
+	h := newTestControlRouter(t)
+
+	createReq := httptest.NewRequest(http.MethodPost, "/sandboxes", strings.NewReader(`{"templateID":"base","timeout":60,"lifecycle":{"onTimeout":"pause"}}`))
+	createReq.Header.Set("X-API-Key", "dev")
+	createRec := httptest.NewRecorder()
+	h.ServeHTTP(createRec, createReq)
+	if createRec.Code != http.StatusCreated {
+		t.Fatalf("create status = %d body=%s", createRec.Code, createRec.Body.String())
+	}
+	var created sandboxResponse
+	if err := json.NewDecoder(createRec.Body).Decode(&created); err != nil {
+		t.Fatalf("decode create: %v", err)
+	}
+
+	getReq := httptest.NewRequest(http.MethodGet, "/sandboxes/"+created.SandboxID, nil)
+	getReq.Header.Set("X-API-Key", "dev")
+	getRec := httptest.NewRecorder()
+	h.ServeHTTP(getRec, getReq)
+	var detail sandboxDetailResponse
+	if err := json.NewDecoder(getRec.Body).Decode(&detail); err != nil {
+		t.Fatalf("decode detail: %v", err)
+	}
+	if detail.Lifecycle.OnTimeout != "pause" {
+		t.Errorf("lifecycle.onTimeout = %q, want pause", detail.Lifecycle.OnTimeout)
+	}
+}
+
+func TestCreateDefaultLifecycleIsKill(t *testing.T) {
+	h := newTestControlRouter(t)
+
+	createReq := httptest.NewRequest(http.MethodPost, "/sandboxes", strings.NewReader(`{"templateID":"base","timeout":60}`))
+	createReq.Header.Set("X-API-Key", "dev")
+	createRec := httptest.NewRecorder()
+	h.ServeHTTP(createRec, createReq)
+	var created sandboxResponse
+	_ = json.NewDecoder(createRec.Body).Decode(&created)
+
+	getReq := httptest.NewRequest(http.MethodGet, "/sandboxes/"+created.SandboxID, nil)
+	getReq.Header.Set("X-API-Key", "dev")
+	getRec := httptest.NewRecorder()
+	h.ServeHTTP(getRec, getReq)
+	var detail sandboxDetailResponse
+	if err := json.NewDecoder(getRec.Body).Decode(&detail); err != nil {
+		t.Fatalf("decode detail: %v", err)
+	}
+	if detail.Lifecycle.OnTimeout != "kill" {
+		t.Errorf("lifecycle.onTimeout = %q, want kill", detail.Lifecycle.OnTimeout)
+	}
+	if detail.Lifecycle.AutoResume.Enabled {
+		t.Error("kill sandbox should not advertise autoResume.enabled")
+	}
+}
+
 func TestConnectMissingSandboxReturns404(t *testing.T) {
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/sandboxes/isb_missing/connect", strings.NewReader(`{"timeout":60}`))

@@ -139,6 +139,9 @@ type CreateOptions struct {
 	Metadata   map[string]string
 	EnvVars    map[string]string
 	Timeout    time.Duration
+	// OnTimeout controls what EnforceTimeouts does when this sandbox
+	// expires. Empty string defaults to OnTimeoutKill (Phase 1 behaviour).
+	OnTimeout OnTimeoutMode
 }
 
 // Create mints a fresh sandbox, starts its container via the runtime,
@@ -148,6 +151,9 @@ type CreateOptions struct {
 func (m *Manager) Create(ctx context.Context, opts CreateOptions) (*Sandbox, error) {
 	if opts.Timeout <= 0 {
 		opts.Timeout = DefaultTimeout
+	}
+	if opts.OnTimeout == "" {
+		opts.OnTimeout = OnTimeoutKill
 	}
 	templateID := opts.TemplateID
 	if templateID == "" {
@@ -214,6 +220,7 @@ func (m *Manager) Create(ctx context.Context, opts CreateOptions) (*Sandbox, err
 		EnvdToken:    envdToken,
 		TrafficToken: trafficToken,
 		State:        StateRunning,
+		OnTimeout:    opts.OnTimeout,
 		Metadata:     cloneMap(opts.Metadata),
 		EnvVars:      cloneMap(opts.EnvVars),
 		CreatedAt:    now,
@@ -397,25 +404,61 @@ func (m *Manager) Snapshot(ctx context.Context, id, name string) (*SnapshotInfo,
 	}, nil
 }
 
-// EnforceTimeouts reaps all sandboxes whose ExpiresAt is not after now.
-// Returns the IDs killed so callers can log them. Container teardown
-// is best-effort — individual destroy failures don't stop the sweep.
+// EnforceTimeouts walks the registry for sandboxes whose ExpiresAt has
+// lapsed. Sandboxes with OnTimeoutKill are dropped from the registry
+// and their container is destroyed; sandboxes with OnTimeoutPause are
+// frozen via runtime.Pause and kept in the registry for a later
+// /connect to unpause. Already-paused sandboxes are skipped — once a
+// sandbox is paused its TTL no longer ticks. Returns the IDs of every
+// sandbox touched by this sweep (killed + paused) so callers can log
+// them. Container actions are best-effort — individual runtime failures
+// don't stop the sweep.
 func (m *Manager) EnforceTimeouts(ctx context.Context) []string {
 	m.mu.Lock()
 	now := m.clock.Now()
-	var expired []string
+	type expiredEntry struct {
+		id  string
+		sbx *Sandbox
+	}
+	var toKill []string
+	var toPause []expiredEntry
 	for id, s := range m.sandboxes {
+		if s.State == StatePaused {
+			continue
+		}
 		if !s.ExpiresAt.After(now) {
-			expired = append(expired, id)
-			delete(m.sandboxes, id)
+			if s.OnTimeout == OnTimeoutPause {
+				toPause = append(toPause, expiredEntry{id: id, sbx: s})
+			} else {
+				toKill = append(toKill, id)
+				delete(m.sandboxes, id)
+			}
 		}
 	}
 	m.mu.Unlock()
 
-	for _, id := range expired {
+	for _, id := range toKill {
 		_ = m.rt.Destroy(ctx, id)
 	}
-	return expired
+
+	touched := toKill
+	for _, e := range toPause {
+		if err := m.rt.Pause(ctx, e.id); err != nil {
+			// Pause failed — fall back to destroy so we don't leave a
+			// half-state sandbox behind.
+			m.mu.Lock()
+			delete(m.sandboxes, e.id)
+			m.mu.Unlock()
+			_ = m.rt.Destroy(ctx, e.id)
+			touched = append(touched, e.id)
+			continue
+		}
+		m.mu.Lock()
+		e.sbx.State = StatePaused
+		m.mu.Unlock()
+		touched = append(touched, e.id)
+	}
+	return touched
 }
 
 // Run drives a ticker-based timeout watchdog until ctx is cancelled.

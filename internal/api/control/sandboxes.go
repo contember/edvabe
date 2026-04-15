@@ -15,10 +15,19 @@ import (
 )
 
 type newSandboxRequest struct {
-	TemplateID string            `json:"templateID"`
-	Timeout    int               `json:"timeout"`
-	Metadata   map[string]string `json:"metadata"`
-	EnvVars    map[string]string `json:"envVars"`
+	TemplateID string                    `json:"templateID"`
+	Timeout    int                       `json:"timeout"`
+	Metadata   map[string]string         `json:"metadata"`
+	EnvVars    map[string]string         `json:"envVars"`
+	AutoPause  bool                      `json:"autoPause"`
+	Lifecycle  *newSandboxLifecycleInput `json:"lifecycle,omitempty"`
+}
+
+// newSandboxLifecycleInput mirrors the SDK's NewSandbox.lifecycle field.
+// The SDK also sends autoResume here; we accept it for wire compatibility
+// but do not act on it — resume is always on via /connect.
+type newSandboxLifecycleInput struct {
+	OnTimeout string `json:"onTimeout"`
 }
 
 type sandboxResponse struct {
@@ -77,6 +86,7 @@ func createSandbox(manager sandboxManager, provider versionProvider, w http.Resp
 		Metadata:   req.Metadata,
 		EnvVars:    req.EnvVars,
 		Timeout:    time.Duration(req.Timeout) * time.Second,
+		OnTimeout:  resolveOnTimeout(req),
 	})
 	if err != nil {
 		api.WriteError(w, http.StatusInternalServerError, err.Error())
@@ -376,10 +386,14 @@ func toSandboxResponse(manager sandboxManager, provider versionProvider, sbx *sa
 }
 
 func toSandboxDetailResponse(manager sandboxManager, provider versionProvider, sbx *sandbox.Sandbox, stats *runtime.Stats) sandboxDetailResponse {
+	onTimeout := string(sbx.OnTimeout)
+	if onTimeout == "" {
+		onTimeout = string(sandbox.OnTimeoutKill)
+	}
 	resp := sandboxDetailResponse{
 		sandboxResponse:     toSandboxResponse(manager, provider, sbx),
 		State:               sbx.State,
-		Lifecycle:           sandboxLifecycle{OnTimeout: "kill", AutoResume: sandboxAutoResumeMode{Enabled: false}},
+		Lifecycle:           sandboxLifecycle{OnTimeout: onTimeout, AutoResume: sandboxAutoResumeMode{Enabled: sbx.OnTimeout == sandbox.OnTimeoutPause}},
 		Network:             sandboxNetworkConfig{AllowPublicTraffic: true, AllowOut: []string{}, DenyOut: []string{}},
 		AllowInternetAccess: true,
 		EnvVars:             sbx.EnvVars,
@@ -389,4 +403,24 @@ func toSandboxDetailResponse(manager sandboxManager, provider versionProvider, s
 		resp.DiskSizeMB = stats.DiskUsedMB
 	}
 	return resp
+}
+
+// resolveOnTimeout picks the sandbox lifecycle mode from the incoming
+// request. Both autoPause (legacy shorthand) and lifecycle.onTimeout
+// are accepted; lifecycle.onTimeout wins when both are set, mirroring
+// the SDK's own precedence. Unknown onTimeout values fall through to
+// the default kill mode so a typo doesn't silently leak a container.
+func resolveOnTimeout(req newSandboxRequest) sandbox.OnTimeoutMode {
+	if req.Lifecycle != nil {
+		switch req.Lifecycle.OnTimeout {
+		case string(sandbox.OnTimeoutPause):
+			return sandbox.OnTimeoutPause
+		case string(sandbox.OnTimeoutKill):
+			return sandbox.OnTimeoutKill
+		}
+	}
+	if req.AutoPause {
+		return sandbox.OnTimeoutPause
+	}
+	return sandbox.OnTimeoutKill
 }

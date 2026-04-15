@@ -684,6 +684,129 @@ func TestSnapshotUnknownSandbox(t *testing.T) {
 	}
 }
 
+func TestEnforceTimeoutsPausesWhenOnTimeoutPause(t *testing.T) {
+	start := time.Date(2026, 4, 15, 12, 0, 0, 0, time.UTC)
+	clk := newFakeClock(start)
+	m, rt := newTestManagerWithRuntime(t, clk)
+	ctx := context.Background()
+
+	s, err := m.Create(ctx, CreateOptions{
+		Timeout:   30 * time.Second,
+		OnTimeout: OnTimeoutPause,
+	})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	clk.Advance(29 * time.Second)
+	if touched := m.EnforceTimeouts(ctx); len(touched) != 0 {
+		t.Errorf("early enforce touched %v", touched)
+	}
+
+	clk.Advance(2 * time.Second)
+	touched := m.EnforceTimeouts(ctx)
+	if len(touched) != 1 || touched[0] != s.ID {
+		t.Fatalf("enforce touched = %v, want [%s]", touched, s.ID)
+	}
+	if !rt.IsPaused(s.ID) {
+		t.Error("runtime did not see Pause on timeout")
+	}
+	got, err := m.Get(s.ID)
+	if err != nil {
+		t.Fatalf("Get after pause-on-timeout: %v", err)
+	}
+	if got.State != StatePaused {
+		t.Errorf("State = %q, want paused", got.State)
+	}
+	// Second sweep must not re-pause an already-paused sandbox.
+	if again := m.EnforceTimeouts(ctx); len(again) != 0 {
+		t.Errorf("second sweep touched %v, want none", again)
+	}
+}
+
+func TestEnforceTimeoutsKillsWhenOnTimeoutKill(t *testing.T) {
+	start := time.Date(2026, 4, 15, 12, 0, 0, 0, time.UTC)
+	clk := newFakeClock(start)
+	m, rt := newTestManagerWithRuntime(t, clk)
+	ctx := context.Background()
+
+	s, err := m.Create(ctx, CreateOptions{
+		Timeout:   30 * time.Second,
+		OnTimeout: OnTimeoutKill,
+	})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	clk.Advance(31 * time.Second)
+	touched := m.EnforceTimeouts(ctx)
+	if len(touched) != 1 || touched[0] != s.ID {
+		t.Fatalf("enforce touched = %v, want [%s]", touched, s.ID)
+	}
+	if rt.IsPaused(s.ID) {
+		t.Error("kill branch should not pause the runtime container")
+	}
+	if _, err := m.Get(s.ID); !errors.Is(err, ErrNotFound) {
+		t.Errorf("Get after kill = %v, want ErrNotFound", err)
+	}
+}
+
+func TestCreateDefaultsOnTimeoutToKill(t *testing.T) {
+	clk := newFakeClock(time.Date(2026, 4, 15, 12, 0, 0, 0, time.UTC))
+	m, _ := newTestManager(t, clk)
+	s, err := m.Create(context.Background(), CreateOptions{Timeout: time.Minute})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if s.OnTimeout != OnTimeoutKill {
+		t.Errorf("OnTimeout = %q, want %q", s.OnTimeout, OnTimeoutKill)
+	}
+}
+
+func TestEnforceTimeoutsPauseFailureFallsBackToDestroy(t *testing.T) {
+	start := time.Date(2026, 4, 15, 12, 0, 0, 0, time.UTC)
+	clk := newFakeClock(start)
+	rt := &failingPauseRuntime{Runtime: noop.New()}
+	m, err := NewManager(Options{
+		Runtime: rt,
+		Agent:   &stubAgent{port: 49983},
+		Clock:   clk,
+	})
+	if err != nil {
+		t.Fatalf("NewManager: %v", err)
+	}
+	ctx := context.Background()
+
+	s, err := m.Create(ctx, CreateOptions{
+		Timeout:   30 * time.Second,
+		OnTimeout: OnTimeoutPause,
+	})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	clk.Advance(31 * time.Second)
+	touched := m.EnforceTimeouts(ctx)
+	if len(touched) != 1 || touched[0] != s.ID {
+		t.Fatalf("enforce touched = %v, want [%s]", touched, s.ID)
+	}
+	// Sandbox should be gone from the registry since the fallback
+	// dropped it after runtime.Pause failed.
+	if _, err := m.Get(s.ID); !errors.Is(err, ErrNotFound) {
+		t.Errorf("Get after pause-failure fallback = %v, want ErrNotFound", err)
+	}
+}
+
+// failingPauseRuntime wraps a noop runtime and rejects Pause calls.
+// Used to exercise EnforceTimeouts' fallback-to-destroy path.
+type failingPauseRuntime struct {
+	*noop.Runtime
+}
+
+func (f *failingPauseRuntime) Pause(ctx context.Context, sandboxID string) error {
+	return errors.New("pause kaputt")
+}
+
 func TestCreateDestroysContainerWhenReadyProbeFails(t *testing.T) {
 	clk := newFakeClock(time.Date(2026, 4, 15, 12, 0, 0, 0, time.UTC))
 	resolver := &fakeResolver{
