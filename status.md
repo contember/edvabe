@@ -30,7 +30,7 @@ Legend: `[ ]` not started · `[~]` in progress · `[x]` done
       rejection, race-safe concurrent Put. HMAC `Signer` for short-lived
       upload tokens (5 min default TTL, process-local random secret).
       14 unit tests, `-race` clean.
-- [x] **Task 3 — Step → Dockerfile translator** (pending, 2026-04-15)
+- [x] **Task 3 — Step → Dockerfile translator** (a734339, 2026-04-15)
       `internal/template/builder/`: pure `Translate(Input) (*Output, error)`
       covering the five wire step types the SDK actually emits (COPY,
       RUN, WORKDIR, USER, ENV — everything else in the builder API
