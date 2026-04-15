@@ -30,7 +30,21 @@ Legend: `[ ]` not started · `[~]` in progress · `[x]` done
       rejection, race-safe concurrent Put. HMAC `Signer` for short-lived
       upload tokens (5 min default TTL, process-local random secret).
       14 unit tests, `-race` clean.
-- [~] **Task 3 — Step → Dockerfile translator**
+- [x] **Task 3 — Step → Dockerfile translator** (pending, 2026-04-15)
+      `internal/template/builder/`: pure `Translate(Input) (*Output, error)`
+      covering the five wire step types the SDK actually emits (COPY,
+      RUN, WORKDIR, USER, ENV — everything else in the builder API
+      compiles client-side to RUN before it reaches us). Handles user
+      sandwich on RUN user overrides, chown/chmod flags on COPY,
+      cache-bust ARGs for `force: true` steps, deduplication of file
+      hashes, and the envd injection tail (`COPY --from=edvabe/envd-source`
+      + `CMD ["/usr/local/bin/edvabe-init"]`). Companion `PrepareContext`
+      extracts cached tars (gzipped or plain) into the build staging
+      dir with path-traversal rejection. 24 unit tests, `-race` clean.
+      The Phase 3 checklist's 13-row translation table was overkill —
+      all the fancy builder methods (aptInstall, pipInstall, makeDir,
+      rename, remove, gitClone, etc.) compile client-side to plain RUN
+      before the SDK sends them, so the server only sees five types.
 - [ ] **Task 4 — Template CRUD HTTP endpoints**
 - [ ] **Task 5 — File cache HTTP handlers**
 - [ ] **Task 6 — envd-source scratch image**
