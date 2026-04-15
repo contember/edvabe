@@ -118,8 +118,22 @@ func splitLines(s string) []string {
 	return strings.Split(s, "\n")
 }
 
-// Commit snapshots a sandbox filesystem as a new image. Phase 4. Stubbed
-// out in Phase 1.
+// Commit snapshots a sandbox container's filesystem as a new image
+// tagged imageTag. Uses `docker commit` — so the resulting image
+// captures writable-layer mutations (installed packages, created
+// files) but NOT running process memory. Callers should pause the
+// container first if they need a consistent snapshot.
 func (r *Runtime) Commit(ctx context.Context, sandboxID, imageTag string) error {
-	return fmt.Errorf("docker runtime: Commit not implemented (phase 4)")
+	if sandboxID == "" {
+		return fmt.Errorf("docker runtime: Commit: sandboxID is required")
+	}
+	if imageTag == "" {
+		return fmt.Errorf("docker runtime: Commit: imageTag is required")
+	}
+	if _, err := r.cli.ContainerCommit(ctx, sandboxID, client.ContainerCommitOptions{
+		Reference: imageTag,
+	}); err != nil {
+		return fmt.Errorf("docker runtime: commit %q → %q: %w", sandboxID, imageTag, err)
+	}
+	return nil
 }

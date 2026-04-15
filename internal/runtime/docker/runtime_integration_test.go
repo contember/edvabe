@@ -122,6 +122,54 @@ func TestDockerRuntimeCreateInspectDestroy(t *testing.T) {
 	}
 }
 
+func TestDockerRuntimePauseUnpauseCommit(t *testing.T) {
+	r := newTestRuntime(t)
+	ctx := context.Background()
+
+	sid := uniqueSandboxID(t)
+	t.Cleanup(func() { _ = r.Destroy(ctx, sid) })
+
+	if _, err := r.Create(ctx, runtime.CreateRequest{
+		SandboxID: sid,
+		Image:     testImage,
+	}); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	if err := r.Pause(ctx, sid); err != nil {
+		t.Fatalf("Pause: %v", err)
+	}
+	inspect, err := r.cli.ContainerInspect(ctx, sid, client.ContainerInspectOptions{})
+	if err != nil {
+		t.Fatalf("ContainerInspect after Pause: %v", err)
+	}
+	if inspect.Container.State.Status != "paused" {
+		t.Errorf("state after Pause = %q, want paused", inspect.Container.State.Status)
+	}
+
+	if err := r.Unpause(ctx, sid); err != nil {
+		t.Fatalf("Unpause: %v", err)
+	}
+	inspect, err = r.cli.ContainerInspect(ctx, sid, client.ContainerInspectOptions{})
+	if err != nil {
+		t.Fatalf("ContainerInspect after Unpause: %v", err)
+	}
+	if !inspect.Container.State.Running {
+		t.Errorf("state after Unpause = %q, want running", inspect.Container.State.Status)
+	}
+
+	snapshotTag := "edvabe/snap:" + strconv.FormatInt(time.Now().UnixNano(), 36)
+	t.Cleanup(func() {
+		_, _ = r.cli.ImageRemove(ctx, snapshotTag, client.ImageRemoveOptions{Force: true})
+	})
+	if err := r.Commit(ctx, sid, snapshotTag); err != nil {
+		t.Fatalf("Commit: %v", err)
+	}
+	if _, err := r.cli.ImageInspect(ctx, snapshotTag); err != nil {
+		t.Fatalf("ImageInspect %s: %v", snapshotTag, err)
+	}
+}
+
 func TestDockerRuntimeCreateRequiresID(t *testing.T) {
 	r := newTestRuntime(t)
 	ctx := context.Background()

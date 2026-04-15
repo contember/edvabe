@@ -307,21 +307,94 @@ func (m *Manager) SetTimeout(id string, timeout time.Duration) error {
 }
 
 // Connect renews the TTL on a live sandbox and returns the current
-// snapshot. Phase 1 semantics: same as SetTimeout plus returning the
-// sandbox. Phase 4 will extend this with paused→running resume.
+// snapshot. A paused sandbox is unpaused through the runtime as part
+// of the call so data-plane traffic can resume immediately.
 func (m *Manager) Connect(ctx context.Context, id string, timeout time.Duration) (*Sandbox, error) {
 	m.mu.Lock()
-	defer m.mu.Unlock()
 	s, ok := m.sandboxes[id]
 	if !ok {
+		m.mu.Unlock()
 		return nil, ErrNotFound
 	}
 	now := m.clock.Now()
 	if !s.ExpiresAt.After(now) {
+		m.mu.Unlock()
 		return nil, ErrExpired
 	}
+	wasPaused := s.State == StatePaused
 	s.ExpiresAt = now.Add(timeout)
+	m.mu.Unlock()
+
+	if wasPaused {
+		if err := m.rt.Unpause(ctx, id); err != nil {
+			return nil, fmt.Errorf("sandbox: connect %q: unpause: %w", id, err)
+		}
+		m.mu.Lock()
+		s.State = StateRunning
+		m.mu.Unlock()
+	}
+
 	return s, nil
+}
+
+// Pause freezes the container via runtime.Pause and flips the
+// sandbox's State to paused. The sandbox stays in the registry — its
+// TTL still ticks and data-plane traffic is routed to the same
+// endpoint once Connect unpauses it.
+func (m *Manager) Pause(ctx context.Context, id string) error {
+	m.mu.Lock()
+	s, ok := m.sandboxes[id]
+	if !ok {
+		m.mu.Unlock()
+		return ErrNotFound
+	}
+	if s.State == StatePaused {
+		m.mu.Unlock()
+		return nil
+	}
+	m.mu.Unlock()
+
+	if err := m.rt.Pause(ctx, id); err != nil {
+		return fmt.Errorf("sandbox: pause %q: %w", id, err)
+	}
+	m.mu.Lock()
+	s.State = StatePaused
+	m.mu.Unlock()
+	return nil
+}
+
+// SnapshotInfo is the return shape for Snapshot — the caller needs the
+// tag to reference later and the point-in-time the snapshot was taken
+// at for audit/logging.
+type SnapshotInfo struct {
+	Name      string
+	ImageTag  string
+	CreatedAt time.Time
+}
+
+// Snapshot captures a container's writable filesystem layer as a new
+// image tag via runtime.Commit. It is NOT a memory snapshot — running
+// processes are not preserved. Pausing the sandbox first gives a
+// consistent filesystem view but is not required.
+func (m *Manager) Snapshot(ctx context.Context, id, name string) (*SnapshotInfo, error) {
+	m.mu.RLock()
+	_, ok := m.sandboxes[id]
+	m.mu.RUnlock()
+	if !ok {
+		return nil, ErrNotFound
+	}
+	if name == "" {
+		name = "snap-" + m.clock.Now().UTC().Format("20060102-150405")
+	}
+	tag := fmt.Sprintf("edvabe/snapshot-%s:%s", id, name)
+	if err := m.rt.Commit(ctx, id, tag); err != nil {
+		return nil, fmt.Errorf("sandbox: snapshot %q: %w", id, err)
+	}
+	return &SnapshotInfo{
+		Name:      name,
+		ImageTag:  tag,
+		CreatedAt: m.clock.Now(),
+	}, nil
 }
 
 // EnforceTimeouts reaps all sandboxes whose ExpiresAt is not after now.

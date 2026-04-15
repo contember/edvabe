@@ -85,6 +85,23 @@ func newTestManager(t *testing.T, clk *fakeClock) (*Manager, *stubAgent) {
 	return m, ap
 }
 
+// newTestManagerWithRuntime mirrors newTestManager but also exposes the
+// noop runtime so tests that care about Pause/Unpause/Commit side
+// effects can peek at IsPaused / HasImage.
+func newTestManagerWithRuntime(t *testing.T, clk *fakeClock) (*Manager, *noop.Runtime) {
+	t.Helper()
+	rt := noop.New()
+	m, err := NewManager(Options{
+		Runtime: rt,
+		Agent:   &stubAgent{port: 49983},
+		Clock:   clk,
+	})
+	if err != nil {
+		t.Fatalf("NewManager: %v", err)
+	}
+	return m, rt
+}
+
 func TestNewManagerRequiresRuntime(t *testing.T) {
 	if _, err := NewManager(Options{Agent: &stubAgent{}}); err == nil {
 		t.Error("NewManager without Runtime should fail")
@@ -550,6 +567,120 @@ func TestCreateSkipsReadyProbeWhenTemplateHasNoReadyCmd(t *testing.T) {
 	}
 	if ap.readyCalls != 0 {
 		t.Errorf("readyCalls = %d, want 0 (fast path)", ap.readyCalls)
+	}
+}
+
+func TestPauseFlipsStateAndCallsRuntime(t *testing.T) {
+	clk := newFakeClock(time.Date(2026, 4, 15, 12, 0, 0, 0, time.UTC))
+	m, rt := newTestManagerWithRuntime(t, clk)
+	ctx := context.Background()
+
+	s, err := m.Create(ctx, CreateOptions{Timeout: time.Minute})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	if err := m.Pause(ctx, s.ID); err != nil {
+		t.Fatalf("Pause: %v", err)
+	}
+	if !rt.IsPaused(s.ID) {
+		t.Error("runtime did not see Pause")
+	}
+	if got, _ := m.Get(s.ID); got.State != StatePaused {
+		t.Errorf("State = %q, want paused", got.State)
+	}
+	// Idempotent.
+	if err := m.Pause(ctx, s.ID); err != nil {
+		t.Errorf("repeat Pause: %v", err)
+	}
+}
+
+func TestPauseUnknownSandbox(t *testing.T) {
+	clk := newFakeClock(time.Date(2026, 4, 15, 12, 0, 0, 0, time.UTC))
+	m, _ := newTestManager(t, clk)
+	if err := m.Pause(context.Background(), "isb_missing"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("Pause(missing) = %v, want ErrNotFound", err)
+	}
+}
+
+func TestConnectUnpausesPausedSandbox(t *testing.T) {
+	clk := newFakeClock(time.Date(2026, 4, 15, 12, 0, 0, 0, time.UTC))
+	m, rt := newTestManagerWithRuntime(t, clk)
+	ctx := context.Background()
+
+	s, err := m.Create(ctx, CreateOptions{Timeout: time.Minute})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if err := m.Pause(ctx, s.ID); err != nil {
+		t.Fatalf("Pause: %v", err)
+	}
+	if !rt.IsPaused(s.ID) {
+		t.Fatal("runtime not paused after Pause")
+	}
+
+	resumed, err := m.Connect(ctx, s.ID, 2*time.Minute)
+	if err != nil {
+		t.Fatalf("Connect: %v", err)
+	}
+	if rt.IsPaused(s.ID) {
+		t.Error("runtime still paused after Connect")
+	}
+	if resumed.State != StateRunning {
+		t.Errorf("state after Connect = %q, want running", resumed.State)
+	}
+}
+
+func TestSnapshotCommitsRuntimeImage(t *testing.T) {
+	clk := newFakeClock(time.Date(2026, 4, 15, 12, 0, 0, 0, time.UTC))
+	m, rt := newTestManagerWithRuntime(t, clk)
+	ctx := context.Background()
+
+	s, err := m.Create(ctx, CreateOptions{Timeout: time.Minute})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	info, err := m.Snapshot(ctx, s.ID, "v1")
+	if err != nil {
+		t.Fatalf("Snapshot: %v", err)
+	}
+	wantTag := "edvabe/snapshot-" + s.ID + ":v1"
+	if info.ImageTag != wantTag {
+		t.Errorf("ImageTag = %q, want %q", info.ImageTag, wantTag)
+	}
+	if info.Name != "v1" {
+		t.Errorf("Name = %q, want v1", info.Name)
+	}
+	if !rt.HasImage(wantTag) {
+		t.Errorf("runtime image %q not committed", wantTag)
+	}
+}
+
+func TestSnapshotGeneratesNameWhenEmpty(t *testing.T) {
+	clk := newFakeClock(time.Date(2026, 4, 15, 12, 30, 45, 0, time.UTC))
+	m, _ := newTestManager(t, clk)
+	ctx := context.Background()
+
+	s, err := m.Create(ctx, CreateOptions{Timeout: time.Minute})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	info, err := m.Snapshot(ctx, s.ID, "")
+	if err != nil {
+		t.Fatalf("Snapshot: %v", err)
+	}
+	if !strings.HasPrefix(info.Name, "snap-") {
+		t.Errorf("Name = %q, want snap-<timestamp> prefix", info.Name)
+	}
+}
+
+func TestSnapshotUnknownSandbox(t *testing.T) {
+	clk := newFakeClock(time.Date(2026, 4, 15, 12, 0, 0, 0, time.UTC))
+	m, _ := newTestManager(t, clk)
+	if _, err := m.Snapshot(context.Background(), "isb_missing", ""); !errors.Is(err, ErrNotFound) {
+		t.Errorf("Snapshot(missing) = %v, want ErrNotFound", err)
 	}
 }
 

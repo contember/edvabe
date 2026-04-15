@@ -19,6 +19,8 @@ type sandboxManager interface {
 	Destroy(ctx context.Context, id string) error
 	SetTimeout(id string, timeout time.Duration) error
 	Connect(ctx context.Context, id string, timeout time.Duration) (*sandbox.Sandbox, error)
+	Pause(ctx context.Context, id string) error
+	Snapshot(ctx context.Context, id, name string) (*sandbox.SnapshotInfo, error)
 	Domain() string
 }
 
@@ -69,6 +71,16 @@ func NewRouter(opts RouterOptions) http.Handler {
 			setSandboxTimeout(opts.Manager, w, r)
 		case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/connect"):
 			connectSandbox(opts.Manager, opts.Provider, w, r)
+		case r.Method == http.MethodPost && (strings.HasSuffix(r.URL.Path, "/pause") || strings.HasSuffix(r.URL.Path, "/resume")):
+			// /resume is a deprecated SDK alias for /connect; we honor
+			// it by routing through the same unpause path.
+			if strings.HasSuffix(r.URL.Path, "/pause") {
+				pauseSandbox(opts.Manager, w, r)
+			} else {
+				resumeSandbox(opts.Manager, opts.Provider, w, r)
+			}
+		case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/snapshots"):
+			snapshotSandbox(opts.Manager, w, r)
 		default:
 			http.NotFound(w, r)
 		}

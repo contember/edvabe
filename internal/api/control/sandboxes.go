@@ -239,6 +239,97 @@ func connectSandbox(manager sandboxManager, provider versionProvider, w http.Res
 	}
 }
 
+// snapshotRequest is the optional JSON body for POST .../snapshots.
+// An empty body is fine — Snapshot derives a timestamp-based name.
+type snapshotRequest struct {
+	Name string `json:"name"`
+}
+
+// snapshotResponse mirrors the SDK's SnapshotInfo shape. Both the
+// snapshot name and the underlying image tag are returned so callers
+// can reference the snapshot by either.
+type snapshotResponse struct {
+	Name      string    `json:"name"`
+	ImageTag  string    `json:"imageTag"`
+	CreatedAt time.Time `json:"createdAt"`
+}
+
+func pauseSandbox(manager sandboxManager, w http.ResponseWriter, r *http.Request) {
+	id := strings.TrimSuffix(sandboxIDFromPath(r.URL.Path), "/pause")
+	if id == "" || strings.Contains(id, "/") {
+		http.NotFound(w, r)
+		return
+	}
+	if err := manager.Pause(r.Context(), id); err != nil {
+		writeManagerError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// resumeSandbox is the deprecated alias for /connect. The SDK used
+// POST /sandboxes/{id}/resume in older releases; we route it through
+// the same unpause+renew path so legacy clients keep working. Body
+// shape matches timeoutRequest (the SDK sends its connect timeout
+// there), but an empty body is accepted.
+func resumeSandbox(manager sandboxManager, provider versionProvider, w http.ResponseWriter, r *http.Request) {
+	id := strings.TrimSuffix(sandboxIDFromPath(r.URL.Path), "/resume")
+	if id == "" || strings.Contains(id, "/") {
+		http.NotFound(w, r)
+		return
+	}
+	var req timeoutRequest
+	if r.ContentLength > 0 {
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			api.WriteError(w, http.StatusBadRequest, "invalid JSON body")
+			return
+		}
+	}
+	timeout := time.Duration(req.Timeout) * time.Second
+	if timeout <= 0 {
+		timeout = sandbox.DefaultTimeout
+	}
+	sbx, err := manager.Connect(r.Context(), id, timeout)
+	if err != nil {
+		writeManagerError(w, err)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(toSandboxResponse(manager, provider, sbx)); err != nil {
+		api.WriteError(w, http.StatusInternalServerError, "encode response")
+		return
+	}
+}
+
+func snapshotSandbox(manager sandboxManager, w http.ResponseWriter, r *http.Request) {
+	id := strings.TrimSuffix(sandboxIDFromPath(r.URL.Path), "/snapshots")
+	if id == "" || strings.Contains(id, "/") {
+		http.NotFound(w, r)
+		return
+	}
+	var req snapshotRequest
+	if r.ContentLength > 0 {
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			api.WriteError(w, http.StatusBadRequest, "invalid JSON body")
+			return
+		}
+	}
+	info, err := manager.Snapshot(r.Context(), id, req.Name)
+	if err != nil {
+		writeManagerError(w, err)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	if err := json.NewEncoder(w).Encode(snapshotResponse{
+		Name:      info.Name,
+		ImageTag:  info.ImageTag,
+		CreatedAt: info.CreatedAt,
+	}); err != nil {
+		return
+	}
+}
+
 func parseStateFilter(raw string) map[sandbox.State]struct{} {
 	if raw == "" {
 		return nil

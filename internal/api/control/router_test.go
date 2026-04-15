@@ -194,6 +194,102 @@ func TestListDeleteTimeoutAndConnect(t *testing.T) {
 	}
 }
 
+func TestPauseSnapshotAndResume(t *testing.T) {
+	h := newTestControlRouter(t)
+
+	// Create a sandbox to work with.
+	createReq := httptest.NewRequest(http.MethodPost, "/sandboxes", strings.NewReader(`{"templateID":"base","timeout":120}`))
+	createReq.Header.Set("X-API-Key", "dev")
+	createRec := httptest.NewRecorder()
+	h.ServeHTTP(createRec, createReq)
+	if createRec.Code != http.StatusCreated {
+		t.Fatalf("create status = %d body=%s", createRec.Code, createRec.Body.String())
+	}
+	var created sandboxResponse
+	if err := json.NewDecoder(createRec.Body).Decode(&created); err != nil {
+		t.Fatalf("decode create: %v", err)
+	}
+	id := created.SandboxID
+
+	// Pause → 204.
+	pauseReq := httptest.NewRequest(http.MethodPost, "/sandboxes/"+id+"/pause", nil)
+	pauseReq.Header.Set("X-API-Key", "dev")
+	pauseRec := httptest.NewRecorder()
+	h.ServeHTTP(pauseRec, pauseReq)
+	if pauseRec.Code != http.StatusNoContent {
+		t.Fatalf("pause status = %d body=%s", pauseRec.Code, pauseRec.Body.String())
+	}
+
+	// GET confirms paused state.
+	getReq := httptest.NewRequest(http.MethodGet, "/sandboxes/"+id, nil)
+	getReq.Header.Set("X-API-Key", "dev")
+	getRec := httptest.NewRecorder()
+	h.ServeHTTP(getRec, getReq)
+	if getRec.Code != http.StatusOK {
+		t.Fatalf("get status = %d body=%s", getRec.Code, getRec.Body.String())
+	}
+	var detail sandboxDetailResponse
+	if err := json.NewDecoder(getRec.Body).Decode(&detail); err != nil {
+		t.Fatalf("decode detail: %v", err)
+	}
+	if detail.State != sandbox.StatePaused {
+		t.Errorf("state = %q, want paused", detail.State)
+	}
+
+	// Snapshot → 201 with SnapshotInfo body.
+	snapReq := httptest.NewRequest(http.MethodPost, "/sandboxes/"+id+"/snapshots", strings.NewReader(`{"name":"v1"}`))
+	snapReq.Header.Set("X-API-Key", "dev")
+	snapRec := httptest.NewRecorder()
+	h.ServeHTTP(snapRec, snapReq)
+	if snapRec.Code != http.StatusCreated {
+		t.Fatalf("snapshot status = %d body=%s", snapRec.Code, snapRec.Body.String())
+	}
+	var snapInfo snapshotResponse
+	if err := json.NewDecoder(snapRec.Body).Decode(&snapInfo); err != nil {
+		t.Fatalf("decode snapshot: %v", err)
+	}
+	if snapInfo.Name != "v1" {
+		t.Errorf("snapshot name = %q, want v1", snapInfo.Name)
+	}
+	if !strings.Contains(snapInfo.ImageTag, "edvabe/snapshot-"+id+":v1") {
+		t.Errorf("snapshot imageTag = %q", snapInfo.ImageTag)
+	}
+
+	// Resume (deprecated alias for /connect) flips back to running.
+	resumeReq := httptest.NewRequest(http.MethodPost, "/sandboxes/"+id+"/resume", strings.NewReader(`{"timeout":60}`))
+	resumeReq.Header.Set("X-API-Key", "dev")
+	resumeRec := httptest.NewRecorder()
+	h.ServeHTTP(resumeRec, resumeReq)
+	if resumeRec.Code != http.StatusOK {
+		t.Fatalf("resume status = %d body=%s", resumeRec.Code, resumeRec.Body.String())
+	}
+
+	// GET after resume: should be running again.
+	getReq2 := httptest.NewRequest(http.MethodGet, "/sandboxes/"+id, nil)
+	getReq2.Header.Set("X-API-Key", "dev")
+	getRec2 := httptest.NewRecorder()
+	h.ServeHTTP(getRec2, getReq2)
+	var detail2 sandboxDetailResponse
+	if err := json.NewDecoder(getRec2.Body).Decode(&detail2); err != nil {
+		t.Fatalf("decode detail after resume: %v", err)
+	}
+	if detail2.State != sandbox.StateRunning {
+		t.Errorf("state after resume = %q, want running", detail2.State)
+	}
+}
+
+func TestPauseUnknownSandboxReturns404(t *testing.T) {
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/sandboxes/isb_missing/pause", nil)
+	req.Header.Set("X-API-Key", "dev")
+
+	newTestControlRouter(t).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404", rec.Code)
+	}
+}
+
 func TestConnectMissingSandboxReturns404(t *testing.T) {
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/sandboxes/isb_missing/connect", strings.NewReader(`{"timeout":60}`))

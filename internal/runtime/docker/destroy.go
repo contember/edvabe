@@ -23,12 +23,28 @@ func (r *Runtime) Destroy(ctx context.Context, sandboxID string) error {
 	return nil
 }
 
-// Pause is a Phase 4 feature. Stubbed out in Phase 1.
+// Pause freezes the container's processes via `docker pause`. The
+// container stays resident in memory and keeps its network namespace;
+// Unpause thaws it again. This is NOT a memory snapshot — rebooting
+// the host drops the state. Callers surface that caveat to users.
 func (r *Runtime) Pause(ctx context.Context, sandboxID string) error {
-	return fmt.Errorf("docker runtime: Pause not implemented (phase 4)")
+	if sandboxID == "" {
+		return fmt.Errorf("docker runtime: Pause: sandboxID is required")
+	}
+	if _, err := r.cli.ContainerPause(ctx, sandboxID, client.ContainerPauseOptions{}); err != nil {
+		return fmt.Errorf("docker runtime: pause %q: %w", sandboxID, err)
+	}
+	return nil
 }
 
-// Unpause is a Phase 4 feature. Stubbed out in Phase 1.
+// Unpause thaws a previously-paused container, resuming all of its
+// processes from where Pause left them.
 func (r *Runtime) Unpause(ctx context.Context, sandboxID string) error {
-	return fmt.Errorf("docker runtime: Unpause not implemented (phase 4)")
+	if sandboxID == "" {
+		return fmt.Errorf("docker runtime: Unpause: sandboxID is required")
+	}
+	if _, err := r.cli.ContainerUnpause(ctx, sandboxID, client.ContainerUnpauseOptions{}); err != nil {
+		return fmt.Errorf("docker runtime: unpause %q: %w", sandboxID, err)
+	}
+	return nil
 }
