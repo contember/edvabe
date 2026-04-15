@@ -120,7 +120,7 @@ Legend: `[ ]` not started · `[~]` in progress · `[x]` done
       full picture in one run. The original checklist had a stale envd
       binary cache check — dropped in a separate commit (f63b980) per
       the instructions.md rule for fixing task descriptions.
-- [ ] **Task 15 — Tag v0.1.0**
+- [~] **Task 15 — Tag v0.1.0**
 
 ## Phase 2+ (not yet active)
 
@@ -132,6 +132,10 @@ Phase 1 is complete.
 
 Newest first. Keep entries tight. Reference commit hashes so future
 agents can `git show` the actual changes.
+
+### 2026-04-15 — claim task 15 (tag v0.1.0)
+
+Agent: Claude Opus 4.6 (1M context)
 
 ### 2026-04-15 — claim task 14 (doctor subcommand)
 

@@ -42,12 +42,21 @@ To make the E2B SDKs resolve to edvabe, a client sets:
 E2B_API_URL=http://localhost:3000
 E2B_DOMAIN=localhost:3000
 E2B_API_KEY=edvabe_local
+E2B_SANDBOX_URL=http://localhost:3000
 ```
 
-The SDK already sends `E2b-Sandbox-Id` and `E2b-Sandbox-Port` headers on
-every data-plane call, so edvabe can dispatch without wildcard DNS. The
-`<port>-<id>.localhost` form also works because modern browsers and OSes
-resolve `*.localhost` to `127.0.0.1` per RFC 6761.
+`E2B_SANDBOX_URL` is the load-bearing one for the data plane. Without
+it, the SDK's default `get_sandbox_url` builds
+`https://49983-<sandbox_id>.<E2B_DOMAIN>` — both HTTPS (which edvabe
+does not terminate) and bound to a synthesized hostname. With the
+override set, the SDK sends data-plane calls to plain HTTP `localhost`
+and still emits the `E2b-Sandbox-Id` and `E2b-Sandbox-Port` headers
+edvabe's reverse proxy dispatches on, so no wildcard DNS or TLS is
+required.
+
+Confirmed in the Python SDK (`e2b.connection_config.ConnectionConfig.
+get_sandbox_url` short-circuits on `_sandbox_url`) and the TypeScript
+SDK (`SandboxOpts.sandboxUrl` defaulting to `E2B_SANDBOX_URL`).
 
 ## Auth
 
