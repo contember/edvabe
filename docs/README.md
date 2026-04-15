@@ -10,7 +10,19 @@ The goal is *drop-in*: applications already written against the `e2b` and
 `@e2b/code-interpreter` SDKs should work unchanged against edvabe for local
 development and offline testing.
 
-## Documents
+## Agent workflow files (at repo root)
+
+These live outside `docs/` because they are not reference material —
+they are living working documents:
+
+- **[../CLAUDE.md](../CLAUDE.md)** — project identity, golden rules,
+  commands, upstream references. Read first.
+- **[../instructions.md](../instructions.md)** — generic agent workflow:
+  entry protocol, task picking, commit rules, status updates, escalation.
+- **[../status.md](../status.md)** — current state: what's done, what's
+  in progress, session log, open blockers.
+
+## Design documents (this directory)
 
 Read in this order if you are new to the project:
 
@@ -29,6 +41,9 @@ Read in this order if you are new to the project:
    MVP" to "byte-compatible with both SDKs", with acceptance criteria each.
 7. **[07-open-questions.md](07-open-questions.md)** — design questions still to
    resolve before or during implementation.
+8. **[08-phase1-checklist.md](08-phase1-checklist.md)** — 15 concrete, ordered
+   tasks for Phase 1 with acceptance commands each. This is the source of truth
+   for task *definitions*; `../status.md` is the source of truth for *progress*.
 
 ## TL;DR
 

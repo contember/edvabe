@@ -470,7 +470,12 @@ onwards. If Phase 1 revealed new open questions, add them to
 
 ## Status tracking
 
-When a task is completed, add a line at the top of this file under a
-`## Completed tasks` section with the task number, date, and commit hash
-that landed it. Do not delete the task entries themselves — future agents
-and the user benefit from the historical context.
+Progress is tracked in **[status.md](../status.md)** at the repo root.
+This file is the source of truth for task *definitions*; `status.md` is
+the source of truth for *what's done*. Do not duplicate a "completed
+tasks" list here.
+
+When you complete a task:
+1. Verify the acceptance command in its entry above.
+2. Update `status.md` per [instructions.md](../instructions.md) —
+   flip `[ ]` → `[x]`, add the commit hash, append a session-log entry.
