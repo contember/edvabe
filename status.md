@@ -33,12 +33,14 @@ Legend: `[ ]` not started · `[~]` in progress · `[x]` done
       shelling out to `docker pull`. `pull-base` subcommand replaces the
       old `fetch-envd` stub. Scope changed mid-task — see session log
       and decisions section.
-- [x] **Task 5 — Tag e2bdev/base as edvabe/base** (16142e7, 2026-04-15)
-      `EnsureBaseImage(ctx, tag)` in `internal/agent/upstream/image.go`
-      wraps `PullBase` + `docker tag`. `build-image` subcommand wires
-      it with default `--tag edvabe/base:latest`. `--force` accepted
-      but no-op (pulls by digest are idempotent).
-- [~] **Task 6 — envd-in-Docker smoke test** (gates open question Q3)
+- [~] **Task 5 — Build edvabe/base (multi-stage envd layer)**
+      *Reopened 2026-04-15 after task 6 kickoff revealed that
+      `e2bdev/base` does not contain envd.* Commit `16142e7` (plain
+      `docker tag`) is insufficient. Re-scoped to the B1 plan:
+      multi-stage `docker build` that compiles envd from source at a
+      pinned `e2b-dev/infra` commit and layers it onto the pinned
+      `e2bdev/base` image. See session log below.
+- [ ] **Task 6 — envd-in-Docker smoke test** (gates open question Q3)
 - [ ] **Task 7 — Docker runtime implementation**
 - [ ] **Task 8 — Sandbox manager**
 - [ ] **Task 9 — Dispatch + reverse proxy**
@@ -59,6 +61,29 @@ Phase 1 is complete.
 
 Newest first. Keep entries tight. Reference commit hashes so future
 agents can `git show` the actual changes.
+
+### 2026-04-15 — reopen task 5, defer task 6
+
+Agent: Claude Opus 4.6 (1M context)
+
+While kicking off task 6 I inspected `edvabe/base:latest` (which is
+just a retag of `e2bdev/base`) and found it does NOT contain envd.
+`find / -name envd -type f` in the container returns nothing; the
+default CMD is `python3`. `e2bdev/code-interpreter:latest` is the
+same — neither public image ships envd. E2B's orchestrator injects
+envd into sandbox images outside of what they publish to Docker Hub.
+
+Task 6's health check cannot possibly pass against the current
+`edvabe/base:latest`. Escalated to user. Chose plan **B1**: reopen
+task 5 and redo it as a multi-stage `docker build` that compiles envd
+from source at a pinned `e2b-dev/infra` commit and layers it onto the
+same pinned `e2bdev/base` image we already pulled in task 4.
+
+Task 6 flipped back to `[ ]` (will resume once task 5 produces an
+image that actually runs envd). Task 5 flipped back to `[~]`.
+
+Commit `16142e7` (plain `docker tag`) stays on history — the task 5
+rework is a new commit on top, not a revert.
 
 ### 2026-04-15 — claim task 6 (envd-in-Docker smoke test)
 

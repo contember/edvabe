@@ -22,33 +22,49 @@ or fail loudly inside a container. Validate during Phase 1 kickoff.
 
 ## Q2: How to distribute the envd binary? — *resolved*
 
-**Decided**: Phase 1 uses option (D'), reframed: pull E2B's own
-multi-arch `e2bdev/base` image from Docker Hub, pinned by OCI image
-index digest, and tag it as `edvabe/base:latest`. We do not ship a
-separate envd artifact and we do not maintain our own base image.
+**Decided**: Phase 1 combines Q2 options (D) and (B) with a twist. Task 4
+pulls E2B's multi-arch `e2bdev/base` as the runtime base; task 5 builds
+`edvabe/base:latest` as a multi-stage Docker image that compiles
+upstream envd from source at a pinned `e2b-dev/infra` commit and layers
+it onto `e2bdev/base`. The Go toolchain lives inside Docker (via the
+`golang:1.24` builder stage), not on the host — sidestepping (B)'s
+original objection to host Go.
 
-**Why.** Investigation on 2026-04-15 showed:
+**Why this combination.** Investigation on 2026-04-15, in two passes:
 
+**Pass 1.**
 - (A) is impossible — `e2b-dev/infra` GitHub releases carry zero assets.
   envd is uploaded to E2B's private GCP/AWS buckets (see
   `packages/envd/Makefile` upload target), not to GitHub.
-- (B) is out per the original Q2 write-up — Go toolchain on the host is
+- (B) was out per the original Q2 write-up — Go toolchain on the host is
   too heavy a dependency for a `go install` UX.
 - (C) would still need a source for the binary, inheriting (A)'s problem.
-- (D) as originally framed meant edvabe publishing its own image. But
+- (D) as originally framed meant edvabe publishing its own image, but
   E2B already publishes `e2bdev/base` multi-arch (amd64 + arm64), ~470 MB
-  per arch, last-pushed dates track their releases. We can consume it
-  directly.
+  per arch. We initially chose to consume it directly.
 
-Task 4 now pins `docker.io/e2bdev/base@sha256:<digest>` in code; task 5
-tags that image as `edvabe/base:latest`. No `fetch-envd` subcommand, no
-host-side binary cache.
+**Pass 2 (at task 6 kickoff).** Inspecting `e2bdev/base` inside a
+container showed it does NOT contain envd — `find / -name envd` returns
+nothing and the default `CMD` is `python3`. `e2bdev/code-interpreter`
+is identical in this respect. Neither public image ships envd. E2B's
+orchestrator injects envd into sandbox images outside of what they
+publish to Docker Hub.
 
-**Pin version.** Bump by HEAD-requesting `e2bdev/base:latest` and
-updating `BaseImageDigest`. Never track `latest` at runtime. The
-`envdVersion` reported in Sandbox responses (CLAUDE.md golden rule #3)
-remains `"0.5.7"` regardless — it's informational for the SDK, not tied
-to the image pin.
+This forced the hybrid: keep (D) for the runtime base (which has
+Python, Node, and the tooling E2B's SDK expects) but layer an
+envd-from-source stage on top. The host only needs Docker; Docker's
+`golang:1.24` image provides the Go toolchain during `build-image`, so
+(B)'s objection doesn't apply.
+
+**Pin strategy.**
+- `BaseImageDigest` pins `e2bdev/base` by OCI index digest. Bump by
+  HEAD-requesting `e2bdev/base:latest` and updating the const.
+- `EnvdSourceSHA` pins the `e2b-dev/infra` commit from which envd is
+  built. Bump by picking a new commit from GitHub (typically the HEAD
+  of the latest weekly release tag) and updating the const.
+- `DefaultEnvdVersion` is still `"0.5.7"` — it's the value reported to
+  SDKs in Sandbox responses (CLAUDE.md golden rule #3), not tied to
+  the source pin.
 
 ## Q3: Does upstream envd actually run cleanly in a plain Docker container?
 

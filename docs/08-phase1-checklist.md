@@ -128,18 +128,41 @@ docker image inspect "docker.io/e2bdev/base@sha256:11349f..." --format '{{.Id}}'
 
 ---
 
-## Task 5 — Tag e2bdev/base as edvabe/base
+## Task 5 — Build edvabe/base (multi-stage envd layer)
 
-**Do.** Pull `e2bdev/base` (via `upstream.PullBase` from task 4) and tag
-it as `edvabe/base:latest`. No separate Dockerfile or build context
-needed in Phase 1 — we consume the upstream image unchanged. Future
-phases may layer customizations on top.
+**Do.** Build `edvabe/base:latest` as a two-stage Docker image: stage 1
+compiles upstream envd from source at a pinned `e2b-dev/infra` commit;
+stage 2 starts from the pinned `e2bdev/base` image (pulled in task 4),
+copies the envd binary in, and sets `CMD` to run envd in dev mode.
+
+Task 4's `PullBase` stays as a pre-warmer — `docker build` would pull
+the FROM base anyway, but having `pull-base` separately is useful for
+`doctor` and for airgapped prep. `EnsureBaseImage` always goes through
+`docker build`, not `docker tag`.
 
 **Where.**
-- `internal/agent/upstream/image.go` — `EnsureBaseImage(ctx context.Context,
-  tag string) error`. Pulls if missing, then `docker tag <pinned-ref> <tag>`.
-- Wire `./edvabe build-image [--force]` to call `EnsureBaseImage` with
-  `tag = "edvabe/base:latest"`. `--force` re-pulls even if already present.
+- `assets/Dockerfile.base` — embedded via `//go:embed`. Shape:
+  ```dockerfile
+  # syntax=docker/dockerfile:1.5
+  FROM golang:1.24-bookworm AS envd-builder
+  ARG ENVD_SHA
+  RUN git clone https://github.com/e2b-dev/infra.git /src \
+      && cd /src && git checkout ${ENVD_SHA}
+  WORKDIR /src/packages/envd
+  RUN CGO_ENABLED=0 GOOS=linux go build \
+      -trimpath -ldflags="-s -w" -o /envd .
+
+  FROM docker.io/e2bdev/base@sha256:11349f027b11281645fd8b7874e94053681a0d374508067c16bf15b00e1161b2
+  COPY --from=envd-builder /envd /usr/bin/envd
+  EXPOSE 49983
+  CMD ["/usr/bin/envd", "-isnotfc"]
+  ```
+- `internal/agent/upstream/image.go`:
+  - New `EnvdSourceSHA` constant pinning the commit.
+  - `EnsureBaseImage(ctx, tag string) error` materializes the embedded
+    Dockerfile into a tempdir and shells out to
+    `docker build --build-arg ENVD_SHA=<sha> -t <tag> .`.
+- `cmd/edvabe/main.go`: no change needed (already calls `EnsureBaseImage`).
 
 **Acceptance.**
 
@@ -151,6 +174,7 @@ docker images edvabe/base
 # edvabe/base         latest    ...        ...             ~470MB
 
 docker run --rm -d --name edvabe-smoke -p 49983:49983 edvabe/base:latest
+sleep 2
 curl -sf http://localhost:49983/health
 # exit code 0, 204 No Content
 docker rm -f edvabe-smoke
