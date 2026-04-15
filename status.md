@@ -24,8 +24,13 @@ Legend: `[ ]` not started · `[~]` in progress · `[x]` done
       `Store` with mutex-guarded CRUD, alias resolution, build append/
       update. Atomic persistence via `*.part → rename`. 12 unit tests
       cover round-trip, alias conflict, concurrent reads; `-race` clean.
-- [~] **Task 2 — Content-addressed file cache**
-- [ ] **Task 3 — Step → Dockerfile translator**
+- [x] **Task 2 — Content-addressed file cache** (pending, 2026-04-15)
+      `internal/template/filecache/`: sha256-keyed blob store with
+      atomic `.part → rename` writes, idempotent Put, hash-mismatch
+      rejection, race-safe concurrent Put. HMAC `Signer` for short-lived
+      upload tokens (5 min default TTL, process-local random secret).
+      14 unit tests, `-race` clean.
+- [~] **Task 3 — Step → Dockerfile translator**
 - [ ] **Task 4 — Template CRUD HTTP endpoints**
 - [ ] **Task 5 — File cache HTTP handlers**
 - [ ] **Task 6 — envd-source scratch image**
