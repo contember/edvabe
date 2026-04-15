@@ -244,6 +244,60 @@ Phase 1 is complete.
 Newest first. Keep entries tight. Reference commit hashes so future
 agents can `git show` the actual changes.
 
+### 2026-04-15 — phase 3 tasks 1-5, 7-8, 10 completed (foundation)
+
+Agent: Claude Opus 4.6 (1M context)
+
+- Eight phase-3 tasks shipped in one session, with a per-task
+  atomic commit (implementation + status update):
+  - **Task 1** `d76f6ef` — `internal/template/` store skeleton.
+  - **Task 2** `8ac0062` — `internal/template/filecache/` sha256 blob
+    store + HMAC signer.
+  - **Task 3** `a734339` — `internal/template/builder/` translator.
+    Key finding: the SDK's fluent API (`aptInstall`, `pipInstall`,
+    `makeDir`, `rename`, `gitClone`, etc.) compiles client-side
+    down to 5 wire step types (`COPY`, `RUN`, `WORKDIR`, `USER`,
+    `ENV`) before it hits us, so the translator only deals with
+    those five. The Phase 3 checklist's 13-row table was overkill.
+  - **Task 4** `9cedde3` — template CRUD HTTP endpoints.
+    `NewRouter` now takes `RouterOptions` (breaking) so collaborators
+    are named.
+  - **Task 5** `a0a943b` — file cache HTTP handlers.
+    `GET /templates/{id}/files/{hash}` returns `{present, url?}`;
+    internal `PUT /_upload/{hash}?token=<hmac>` does the upload
+    without an X-API-Key requirement.
+  - **Task 7** `bfdf7e3` — BuildManager state machine.
+    `waiting → building → ready|error` with a 5000-entry ring
+    buffer per build; snap-forward semantics so stale log cursors
+    get a catch-up slice.
+  - **Task 8** `d66d7ef` — build start/status/logs endpoints.
+    Wire shape matches `logsOffset`-paginated
+    BuildStatusResponse the SDK expects. Placeholder executor in
+    `cmd/edvabe/main.go` until task 9 lands real docker build.
+  - **Task 10** `a8d617a` — sandbox create integration.
+    `sandbox.Options.Resolver` + `template.NewSandboxResolver`
+    close the `Sandbox.create('alias')` → image-tag loop.
+    `runtime.CreateRequest` grew `StartCmd`/`ReadyCmd`, docker
+    runtime merges them into container env, noop runtime grew
+    inspector methods for tests.
+- Acceptance: `go vet ./...` clean, `go test -race ./...` passes
+  (all 13 package test suites green). `go build ./...` clean.
+- **Intentionally skipped** for now: task 6 (envd-source scratch
+  image) and task 9 (real docker-backed build executor) — both need
+  a live Docker daemon for any meaningful test, and the session was
+  focused on advancing the pure-Go surface as far as possible.
+  The placeholder executor in `cmd/edvabe/main.go` returns a
+  well-formed error for any enqueued build, so the SDK flow up to
+  that point works end-to-end in dry-runs.
+- **Remaining Phase 3 tasks**: 6 (envd-source), 9 (real executor),
+  11 (readyCmd probe — needs envd exec), 12 (pause/snapshot
+  endpoints — needs docker), 13 (autoPause lifecycle — pure Go but
+  depends on 12), 14 (TS E2E), 15 (webmaster chrome acceptance).
+  Pick up task 9 first when Docker is available — it unblocks 6, 11
+  (via envd exec integration), and 14/15.
+- Open follow-ups from prior sessions still pending: v0.1.0 tag
+  push (awaits explicit user greenlight).
+
 ### 2026-04-15 — phase 3 kickoff + claim task 1 (template store)
 
 Agent: Claude Opus 4.6 (1M context)
