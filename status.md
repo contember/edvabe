@@ -61,7 +61,7 @@ Legend: `[ ]` not started · `[~]` in progress · `[x]` done
       name plus an `edvabe.sandbox.id` label. Pause/Unpause/Commit
       return phase-4 stubs. Integration tests behind
       `-tags=integration`.
-- [ ] **Task 8 — Sandbox manager**
+- [~] **Task 8 — Sandbox manager**
 - [ ] **Task 9 — Dispatch + reverse proxy**
 - [ ] **Task 10 — Control plane: health + create + get**
 - [ ] **Task 11 — Control plane: list + delete + timeout + connect**
@@ -80,6 +80,10 @@ Phase 1 is complete.
 
 Newest first. Keep entries tight. Reference commit hashes so future
 agents can `git show` the actual changes.
+
+### 2026-04-15 — claim task 8 (sandbox manager)
+
+Agent: Claude Opus 4.6 (1M context)
 
 ### 2026-04-15 — complete task 7 (Docker runtime implementation)
 
