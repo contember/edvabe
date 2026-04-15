@@ -66,26 +66,57 @@ envd-from-source stage on top. The host only needs Docker; Docker's
   SDKs in Sandbox responses (CLAUDE.md golden rule #3), not tied to
   the source pin.
 
-## Q3: Does upstream envd actually run cleanly in a plain Docker container?
+## Q3: Does upstream envd actually run cleanly in a plain Docker container? — *resolved*
 
-**The question.** envd has `--isnotfc` but we have not verified the
-behavior end-to-end. Known concerns:
+**Decided**: yes, with `-isnotfc`, plain `docker run`, no special
+capabilities, no bind mounts. Verified 2026-04-15 by
+`test/smoke/envd_in_docker.sh` — runs `edvabe/base:latest`, hits
+`/health`, POSTs `/init`, and makes one `process.Process/Start`
+Connect-RPC call. All four steps pass.
 
-- **MMDS polling** — envd tries to read sandbox config from Firecracker's
-  metadata service. In Docker mode this should fail silently and fall
-  back, but we need to confirm it does.
-- **Port forwarder via socat** — envd spawns `socat` processes to relay
-  user-bound ports to the in-VM gateway IP `169.254.0.21`. In Docker that
-  IP does not exist. This may need a replacement or disabling.
-- **cgroups v2 setup** — envd creates per-process subgroups (ptys,
-  socats, user). May need `--privileged` or may fail gracefully.
-- **Systemd time setting** — the `/init` handler can adjust system clock
-  via `clock_settime`. Needs `CAP_SYS_TIME` or should be disabled.
+**Concerns from the original write-up, revisited:**
 
-**Current leaning.** Run `docker run --rm edvabe/base:latest` locally in
-Phase 1 kickoff as a smoke test. Document required capabilities or bind
-mounts. Possibly patch upstream envd with a "truly Docker" mode flag if
-needed and upstream it.
+- **cgroups v2 setup** — envd logs three warnings on boot:
+  ```
+  failed to create cgroup2 manager: ... mkdir /sys/fs/cgroup/user: read-only file system
+  failed to create pty cgroup: ... mkdir /sys/fs/cgroup/ptys: read-only file system
+  failed to create socat cgroup: ... mkdir /sys/fs/cgroup/socats: read-only file system
+  falling back to no-op cgroup manager
+  ```
+  Benign. `--cap-add=SYS_ADMIN` or `--privileged` would clear them but
+  functionality (process start, stdout streaming, exit reporting) works
+  fine with the no-op manager. Documenting rather than suppressing —
+  if cgroup warnings start affecting functionality in a future envd
+  release we want to see them.
+
+- **MMDS polling** — `-isnotfc` short-circuits the MMDS path
+  (`a.isNotFC` check in `packages/envd/internal/api/init.go`). No
+  observed log spam, no functional impact.
+
+- **Port forwarder via socat** — not exercised by this smoke test. The
+  `/health`, `/init`, and `process.Process/Start` paths don't touch it.
+  Revisit if a Phase 1 or Phase 2 task needs user-bound sandbox ports;
+  expect the in-VM gateway IP (`169.254.0.21`) won't exist in Docker
+  bridge networks so socat will likely fail loudly when first used.
+  Track as a **known gap** — not a Phase 1 blocker.
+
+- **Systemd time setting** — envd's `/init` validates the request
+  timestamp (`maxTimeInPast = 50ms`, `maxTimeInFuture = 5s`) but under
+  `-isnotfc` it does not attempt to `clock_settime`. The smoke test
+  sends `now` and gets 204. No `CAP_SYS_TIME` required.
+
+**Related finding (fixed in the same commit).** `e2bdev/base` ships
+only root; no `user` account. E2B SDKs default to `DefaultUser="user"`
+and `DefaultWorkdir="/home/user"` ([docs/05-architecture.md](05-architecture.md)),
+so edvabe's `/init` call would get `invalid default user: 'user'` from
+envd. `assets/Dockerfile.base` now adds the `user` account with
+passwordless sudo (mirrors `debug.Dockerfile` in upstream envd). Not
+technically a Q3 concern but discovered during this smoke run.
+
+**Known gaps, tracked for later:**
+- socat port forwarder (see above).
+- `ptys` / `socats` cgroup subtrees — functionality not proved for
+  interactive PTY processes. Smoke test uses non-PTY `echo hello`.
 
 ## Q4: `E2b-Sandbox-Id` header vs subdomain parsing
 

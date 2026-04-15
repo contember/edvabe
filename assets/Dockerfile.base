@@ -22,6 +22,15 @@ RUN CGO_ENABLED=0 GOOS=linux go build \
 
 FROM docker.io/e2bdev/base@sha256:11349f027b11281645fd8b7874e94053681a0d374508067c16bf15b00e1161b2
 
+# e2bdev/base ships only root. E2B SDKs default to DefaultUser="user"
+# and DefaultWorkdir="/home/user" (see docs/05-architecture.md), so we
+# create that account here. Without it envd rejects process.Process/Start
+# with "invalid default user: 'user'". Passwordless sudo matches what
+# the debug.Dockerfile in upstream envd uses for local dev.
+RUN useradd -m -s /bin/bash user \
+    && echo "user ALL=(ALL:ALL) NOPASSWD:ALL" >> /etc/sudoers \
+    && chmod 755 /home/user
+
 COPY --from=envd-builder /envd /usr/bin/envd
 EXPOSE 49983
 CMD ["/usr/bin/envd", "-isnotfc"]
