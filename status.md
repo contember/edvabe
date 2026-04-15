@@ -17,7 +17,7 @@ Legend: `[ ]` not started · `[~]` in progress · `[x]` done
       `go.mod`, `cmd/edvabe/main.go` CLI with serve/doctor/build-image/fetch-envd/version
       stubs, `Makefile`, `.gitignore`, `README.md`. `make build && ./bin/edvabe version`
       prints correctly; `go vet ./...` clean.
-- [ ] **Task 2 — Runtime interface**
+- [~] **Task 2 — Runtime interface**
 - [ ] **Task 3 — AgentProvider interface**
 - [ ] **Task 4 — Upstream envd: binary fetcher**
 - [ ] **Task 5 — Upstream envd: base image builder**
@@ -42,6 +42,10 @@ Phase 1 is complete.
 
 Newest first. Keep entries tight. Reference commit hashes so future
 agents can `git show` the actual changes.
+
+### 2026-04-15 — claim task 2 (Runtime interface)
+
+Agent: Claude Opus 4.6 (1M context)
 
 ### 2026-04-15 — initial design, docs, and Phase 1 Task 1
 
