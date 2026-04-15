@@ -265,7 +265,7 @@ systemd units replaced by direct process launches.
 
 ---
 
-## T3 — Templates + pause/resume (Phase 4)
+## T3 — Templates + pause/resume (Phase 3)
 
 ### Templates
 
@@ -274,15 +274,25 @@ systemd units replaced by direct process launches.
 | `GET`    | `/templates`                                 | List. Returns `[Template]`. |
 | `GET`    | `/templates/{templateID}`                    | Returns `TemplateWithBuilds`. |
 | `GET`    | `/templates/aliases/{alias}`                 | Returns `{templateID, public}`. |
-| `POST`   | `/v3/templates`                              | Create (declarative metadata only). Body `{name?, tags[], cpuCount?, memoryMB?}`. |
-| `POST`   | `/v2/templates/{templateID}/builds/{buildID}`| Start a build. Body `TemplateBuildStartV2 {fromImage?, fromTemplate?, steps:[{type, args, filesHash, force}], startCmd, readyCmd}`. |
-| `GET`    | `/templates/{templateID}/builds/{buildID}/status` | Poll build status. |
-| `GET`    | `/templates/{templateID}/builds/{buildID}/logs`   | Paginated structured logs. |
+| `POST`   | `/v3/templates`                              | Create (declarative metadata only). Body `{name, tags[], cpuCount?, memoryMB?, skipCache?}`. Returns `{templateID, buildID, names, tags, aliases, public}`. |
+| `GET`    | `/templates/{templateID}/files/{hash}`       | Check file-context cache. Returns `{present: bool, url?}`. On miss the `url` points at edvabe's internal `/_upload/{hash}?token=...` handler. |
+| `POST`   | `/_upload/{hash}?token=...`                  | Internal: SDK uploads a tar context blob to the content-addressed store. HMAC-token gated, short-lived. Not part of the public E2B surface — lives on the same listener for convenience. |
+| `POST`   | `/v2/templates/{templateID}/builds/{buildID}`| Start a build. Body `TemplateBuildStartV2 {fromImage?, fromTemplate?, fromImageRegistry?, steps:[{type, args, filesHash, force}], startCmd?, readyCmd?, force?}`. Returns 202. |
+| `GET`    | `/templates/{templateID}/builds/{buildID}/status` | Poll build status. Returns `{status: "waiting"\|"building"\|"ready"\|"error", reason?}`. |
+| `GET`    | `/templates/{templateID}/builds/{buildID}/logs`   | Paginated structured logs. Query: `cursor`, `limit`, `direction` (honoured); `level`, `source` (accepted, not filtered). |
 | `DELETE` | `/templates/{templateID}`                    | 204. |
-| `PATCH`  | `/v2/templates/{templateID}`                 | `{public: bool}`. |
+| `PATCH`  | `/v2/templates/{templateID}`                 | `{public?: bool, tags?: string[]}`. `public` stored but ignored. |
 
-In edvabe a "template" is a Docker image tag. Build steps map onto a
-generated Dockerfile that we `docker build`. Hash/cache by step `filesHash`.
+In edvabe a "template" is a Docker image tag (`edvabe/user-<templateID>:latest`)
+plus a metadata record persisted to `~/.local/share/edvabe/templates.json`
+(see Phase 3 scope in `06-phases.md`). Build steps are a JSON array —
+each step maps onto a generated Dockerfile line via a fixed translation
+table; the builder appends a final stage that `COPY`s envd and a tiny
+`edvabe-init` wrapper into every user image so envd remains PID 1 while
+the user's `startCmd` runs alongside. File contexts are content-addressed
+by `filesHash` and cached on disk, so repeat builds skip re-upload.
+`cpuCount` / `memoryMB` are stored but not enforced; builds target the
+host architecture only.
 
 ### Pause / resume / snapshots
 

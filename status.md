@@ -6,8 +6,33 @@ update protocol.
 
 ## Current phase
 
-**Phase 1 — "Single binary runs everything"**
-Full task definitions: [docs/08-phase1-checklist.md](docs/08-phase1-checklist.md)
+**Phase 3 — "Templates and pause"**
+Full task definitions: [docs/09-phase3-checklist.md](docs/09-phase3-checklist.md)
+
+Phase ordering rationale: webmaster is the driving consumer and needs
+programmatic `Template.build()` + pause/resume but does not use the
+code interpreter overlay — see `docs/06-phases.md:11-22`. Phase 2
+(code interpreter) is deferred until a consumer actually needs it.
+
+## Phase 3 tasks
+
+Legend: `[ ]` not started · `[~]` in progress · `[x]` done
+
+- [~] **Task 1 — Template store skeleton**
+- [ ] **Task 2 — Content-addressed file cache**
+- [ ] **Task 3 — Step → Dockerfile translator**
+- [ ] **Task 4 — Template CRUD HTTP endpoints**
+- [ ] **Task 5 — File cache HTTP handlers**
+- [ ] **Task 6 — envd-source scratch image**
+- [ ] **Task 7 — BuildManager state machine**
+- [ ] **Task 8 — Build start + status + logs endpoints**
+- [ ] **Task 9 — Real build executor**
+- [ ] **Task 10 — Sandbox create integration**
+- [ ] **Task 11 — readyCmd probe loop**
+- [ ] **Task 12 — Pause / snapshot / resume endpoints**
+- [ ] **Task 13 — autoPause lifecycle on timeout**
+- [ ] **Task 14 — TypeScript template-build E2E**
+- [ ] **Task 15 — Webmaster chrome template acceptance**
 
 ## Phase 1 tasks
 
@@ -133,6 +158,36 @@ Phase 1 is complete.
 
 Newest first. Keep entries tight. Reference commit hashes so future
 agents can `git show` the actual changes.
+
+### 2026-04-15 — phase 3 kickoff + claim task 1 (template store)
+
+Agent: Claude Opus 4.6 (1M context)
+
+- Scoped Phase 3 in detail after the user pointed at the new
+  programmatic E2B `Template()` SDK in use by webmaster
+  (`webmaster/containers/templates/chrome/template.ts` +
+  `build.ts`). Updated `docs/06-phases.md` Phase 3 section with
+  envd injection into user images, `edvabe-init` wrapper,
+  `readyCmd` lifecycle, content-addressed file cache, template
+  metadata persistence, alias resolution in sandbox create,
+  async builder state machine, `fromTemplate` chaining,
+  `fromImageRegistry` passthrough. Resource limits (`cpuCount` /
+  `memoryMB`) intentionally stored-but-not-enforced per user
+  guidance; multi-arch explicitly out of scope.
+- `docs/03-api-surface.md` — T3 header corrected to Phase 3
+  (was Phase 4), endpoint table gained
+  `GET /templates/{id}/files/{hash}` + internal
+  `POST /_upload/{hash}`, body shapes expanded.
+- Created `docs/09-phase3-checklist.md` with 15 tasks broken out
+  and ordered by dependency (store → file cache → translator →
+  CRUD → file-cache HTTP → envd-source image → builder manager →
+  build endpoints → real executor → sandbox create integration →
+  readyCmd probe → pause/snapshot → autoPause → E2E → webmaster).
+- Switched `status.md` current phase to Phase 3, listed the task
+  board, claimed task 1.
+- Phase 2 (code interpreter) deferred until a consumer needs it.
+- v0.1.0 tag from the previous session is still local-only and
+  still waiting on explicit push approval.
 
 ### 2026-04-15 — claim task 15 (tag v0.1.0)
 
