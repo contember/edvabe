@@ -153,7 +153,25 @@ Legend: `[ ]` not started · `[~]` in progress · `[x]` done
       the persisted `imageTag` over the "edvabe/user-..." derivation.
       `cmd/edvabe/main.go` wires the adapter into serve. 4 new
       resolver tests + 4 new manager tests.
-- [~] **Task 11 — readyCmd probe loop**
+- [x] **Task 11 — readyCmd probe loop** (b495d6c, 2026-04-15)
+      `agent.AgentProvider` gains `WaitReady(ctx, endpoint, cmd)` —
+      empty cmd is a no-op fast path, matching Phase 1 behaviour.
+      Upstream impl in `internal/agent/upstream/ready.go` speaks
+      envd's `process.Process/Start` Connect-JSON wire directly: a
+      5-byte envelope header + JSON body, then a frame-by-frame
+      walk of the server-stream looking for the first EndEvent and
+      extracting its exitCode. 500 ms + 250 ms jitter backoff
+      between attempts; ctx deadline is the outer bound. The
+      sandbox manager calls `WaitReady` between `InitAgent` and
+      sandbox registration — non-zero exit (or any RPC failure)
+      destroys the container and surfaces `sandbox: create %q:
+      ready probe: %w`. 6 new upstream unit tests (fast-path,
+      first-try success, retry-until-success, ctx expiry, two
+      decoder corner cases) + 3 new sandbox manager tests
+      (probe invoked, fast-path when readyCmd empty, destroy +
+      error on probe failure). Also updated the two in-repo
+      stub AgentProviders (sandbox + control router) with the
+      new method.
 - [ ] **Task 12 — Pause / snapshot / resume endpoints**
 - [ ] **Task 13 — autoPause lifecycle on timeout**
 - [ ] **Task 14 — TypeScript template-build E2E**
@@ -283,6 +301,45 @@ Phase 1 is complete.
 
 Newest first. Keep entries tight. Reference commit hashes so future
 agents can `git show` the actual changes.
+
+### 2026-04-15 — complete task 11 (readyCmd probe loop)
+
+Agent: Claude Opus 4.6 (1M context)
+
+- `internal/agent/agent.go` — extended `AgentProvider` with
+  `WaitReady(ctx, endpoint, cmd) error`. Empty `cmd` is the Phase 1
+  fast path; no network traffic happens when a template has no
+  `readyCmd`.
+- `internal/agent/upstream/ready.go` — implementation against
+  envd's `process.Process/Start` Connect-JSON wire. No new
+  dependency: the envelope framing and event decoding are hand-
+  rolled, matching what `test/smoke/envd_in_docker.sh` already
+  proved works. Shell-wraps the probe via `/bin/sh -c "$cmd"`
+  so templates can pass ordinary shell expressions like
+  `curl -f http://localhost:9222`. Backoff defaults to 500 ms +
+  ≤250 ms jitter; context deadline is the outer bound.
+- `internal/sandbox/manager.go` — `Create` now runs `WaitReady`
+  between `InitAgent` and registration when the resolved
+  `TemplateResolution.ReadyCmd` is non-empty. On failure the
+  container is destroyed via `runtime.Destroy` and the error is
+  surfaced as `sandbox: create %q: ready probe: %w`. A per-create
+  sub-context capped by `opts.Timeout` guards against
+  unbounded probe loops.
+- Tests: 6 new upstream unit tests (fast path, first-shot success,
+  retry-until-success, context expiry, decoder corner cases) using
+  a Connect-frame helper that encodes `{event:{end:{exitCode}}}`.
+  3 new sandbox-manager tests verify the call site: probe invoked
+  with the right cmd, fast path when readyCmd is empty, and
+  destroy-on-failure. Also updated the two in-repo stub
+  AgentProviders (`internal/sandbox/manager_test.go`,
+  `internal/api/control/router_test.go`) with the new method so
+  the interface contract stays uniform.
+- Acceptance: `go vet ./...` clean, `go test -race ./...` green
+  across all 13 package suites (`internal/sandbox/...` and
+  `internal/agent/...` specifically called out by the task).
+- Unblocks tasks 14 (TS E2E — templates with readyCmd now boot
+  cleanly) and 15 (webmaster chrome needs readyCmd for
+  `ss -tuln | grep :9222`).
 
 ### 2026-04-15 — claim task 11 (readyCmd probe loop)
 
