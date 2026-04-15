@@ -9,6 +9,7 @@ import (
 	"github.com/contember/edvabe/internal/api"
 	"github.com/contember/edvabe/internal/runtime"
 	"github.com/contember/edvabe/internal/sandbox"
+	"github.com/contember/edvabe/internal/template/filecache"
 )
 
 type sandboxManager interface {
@@ -35,6 +36,15 @@ type RouterOptions struct {
 	// Templates is the Phase 3 template store (internal/template.Store
 	// or a fake in tests). Pass nil to serve only the Phase 1 routes.
 	Templates templateStore
+	// FileCache and FileSigner power the SDK's Template.build() file
+	// upload path. Both must be set together; if either is nil, the
+	// file endpoints are skipped.
+	FileCache  *filecache.Cache
+	FileSigner *filecache.Signer
+	// PublicBase is the externally reachable base URL of the edvabe
+	// listener (e.g. "http://localhost:3000"). Used when minting
+	// upload URLs. If empty, falls back to the inbound Host header.
+	PublicBase string
 }
 
 // NewRouter returns the control-plane router. When Templates is set
@@ -60,6 +70,7 @@ func NewRouter(opts RouterOptions) http.Handler {
 		}
 	}))
 
+	filesEnabled := opts.FileCache != nil && opts.FileSigner != nil
 	templateHandler := api.RequireAPIKey(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if opts.Templates == nil {
 			http.NotFound(w, r)
@@ -72,6 +83,8 @@ func NewRouter(opts RouterOptions) http.Handler {
 			listTemplates(opts.Templates, w, r)
 		case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/templates/aliases/"):
 			resolveAlias(opts.Templates, w, r)
+		case r.Method == http.MethodGet && filesEnabled && isTemplateFilesPath(r.URL.Path):
+			getFileUploadLink(opts.Templates, opts.FileCache, opts.FileSigner, opts.PublicBase, w, r)
 		case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/templates/"):
 			getTemplate(opts.Templates, w, r)
 		case r.Method == http.MethodDelete && strings.HasPrefix(r.URL.Path, "/templates/"):
@@ -89,6 +102,14 @@ func NewRouter(opts RouterOptions) http.Handler {
 			health(w, r)
 		case r.URL.Path == "/sandboxes" || r.URL.Path == "/v2/sandboxes" || strings.HasPrefix(r.URL.Path, "/sandboxes/"):
 			sandboxHandler.ServeHTTP(w, r)
+		case strings.HasPrefix(r.URL.Path, "/_upload/"):
+			if !filesEnabled {
+				http.NotFound(w, r)
+				return
+			}
+			// Deliberately bypasses RequireAPIKey — the HMAC token in
+			// the query string is the auth on this path.
+			uploadFile(opts.FileCache, opts.FileSigner, w, r)
 		case r.URL.Path == "/templates" || r.URL.Path == "/v3/templates" ||
 			strings.HasPrefix(r.URL.Path, "/templates/") || strings.HasPrefix(r.URL.Path, "/v2/templates/"):
 			templateHandler.ServeHTTP(w, r)
@@ -96,4 +117,15 @@ func NewRouter(opts RouterOptions) http.Handler {
 			http.NotFound(w, r)
 		}
 	})
+}
+
+// isTemplateFilesPath reports whether path looks like
+// /templates/{id}/files/{hash}.
+func isTemplateFilesPath(path string) bool {
+	if !strings.HasPrefix(path, "/templates/") {
+		return false
+	}
+	rest := strings.TrimPrefix(path, "/templates/")
+	parts := strings.SplitN(rest, "/", 3)
+	return len(parts) == 3 && parts[1] == "files" && parts[0] != "" && parts[2] != ""
 }

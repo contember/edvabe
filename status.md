@@ -58,7 +58,20 @@ Legend: `[ ]` not started · `[~]` in progress · `[x]` done
       the store at `~/.local/share/edvabe/templates.json` (override via
       `EDVABE_STATE_DIR`). 11 new handler tests; Phase-1 router test
       updated for the new constructor.
-- [ ] **Task 5 — File cache HTTP handlers**
+- [x] **Task 5 — File cache HTTP handlers** (pending, 2026-04-15)
+      `internal/api/control/files.go`: `GET /templates/{id}/files/{hash}`
+      returns the SDK's TemplateBuildFileUpload shape
+      (`{present, url?}`); on miss the URL points at an internal
+      `PUT /_upload/{hash}?token=<hmac>` handler that streams the body
+      through the content-addressed cache. `/_upload` is deliberately
+      outside the `X-API-Key` requirement — the signed HMAC token in
+      the query string is the auth. `RouterOptions` gained `FileCache`,
+      `FileSigner`, `PublicBase` fields; both file endpoints are
+      opt-in, so deployments without a cache still route correctly.
+      `cmd/edvabe/main.go` instantiates the cache at
+      `~/.cache/edvabe/template-files/` (override via `EDVABE_CACHE_DIR`)
+      and a random-secret 10-minute signer. 10 new handler tests cover
+      present/absent, token expiry, hash mismatch, and API-key bypass.
 - [ ] **Task 6 — envd-source scratch image**
 - [ ] **Task 7 — BuildManager state machine**
 - [ ] **Task 8 — Build start + status + logs endpoints**

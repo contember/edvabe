@@ -10,6 +10,8 @@ import (
 	"os"
 	"path/filepath"
 
+	"time"
+
 	"github.com/contember/edvabe/internal/agent/upstream"
 	api "github.com/contember/edvabe/internal/api"
 	"github.com/contember/edvabe/internal/api/control"
@@ -17,6 +19,7 @@ import (
 	"github.com/contember/edvabe/internal/runtime/docker"
 	"github.com/contember/edvabe/internal/sandbox"
 	"github.com/contember/edvabe/internal/template"
+	"github.com/contember/edvabe/internal/template/filecache"
 )
 
 const (
@@ -108,11 +111,25 @@ func serveCmd(args []string) {
 		os.Exit(1)
 	}
 
+	fileCache, err := filecache.New(fileCacheDir())
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "serve: init file cache: %v\n", err)
+		os.Exit(1)
+	}
+	fileSigner, err := filecache.NewRandomSigner(10 * time.Minute)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "serve: init file signer: %v\n", err)
+		os.Exit(1)
+	}
+
 	controlHandler := control.NewRouter(control.RouterOptions{
-		Manager:   mgr,
-		Runtime:   rt,
-		Provider:  ap,
-		Templates: templateStore,
+		Manager:    mgr,
+		Runtime:    rt,
+		Provider:   ap,
+		Templates:  templateStore,
+		FileCache:  fileCache,
+		FileSigner: fileSigner,
+		PublicBase: fmt.Sprintf("http://localhost:%d", *port),
 	})
 	proxyHandler := api.NewProxy(mgr, rt)
 	handler := api.NewRouter(controlHandler, proxyHandler)
@@ -181,4 +198,17 @@ func templateStorePath() string {
 		return "edvabe-templates.json"
 	}
 	return filepath.Join(home, ".local", "share", "edvabe", "templates.json")
+}
+
+// fileCacheDir returns the directory the content-addressed blob store
+// lives in. $EDVABE_CACHE_DIR wins; otherwise ~/.cache/edvabe/template-files.
+func fileCacheDir() string {
+	if dir := os.Getenv("EDVABE_CACHE_DIR"); dir != "" {
+		return dir
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "edvabe-template-files"
+	}
+	return filepath.Join(home, ".cache", "edvabe", "template-files")
 }
