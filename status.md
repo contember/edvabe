@@ -33,7 +33,7 @@ Legend: `[ ]` not started · `[~]` in progress · `[x]` done
       shelling out to `docker pull`. `pull-base` subcommand replaces the
       old `fetch-envd` stub. Scope changed mid-task — see session log
       and decisions section.
-- [ ] **Task 5 — Upstream envd: base image builder**
+- [~] **Task 5 — Tag e2bdev/base as edvabe/base**
 - [ ] **Task 6 — envd-in-Docker smoke test** (gates open question Q3)
 - [ ] **Task 7 — Docker runtime implementation**
 - [ ] **Task 8 — Sandbox manager**
@@ -55,6 +55,10 @@ Phase 1 is complete.
 
 Newest first. Keep entries tight. Reference commit hashes so future
 agents can `git show` the actual changes.
+
+### 2026-04-15 — claim task 5 (tag e2bdev/base)
+
+Agent: Claude Opus 4.6 (1M context)
 
 ### 2026-04-15 — complete task 4 (pin e2bdev/base image)
 
