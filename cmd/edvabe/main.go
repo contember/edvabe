@@ -77,9 +77,16 @@ func doctorCmd(args []string) {
 
 func buildImageCmd(args []string) {
 	fs := flag.NewFlagSet("build-image", flag.ExitOnError)
-	force := fs.Bool("force", false, "Force rebuild even if image exists")
+	tag := fs.String("tag", "edvabe/base:latest", "local tag to apply to the upstream base image")
+	// --force is accepted for compatibility with docs/task description;
+	// pulls by digest are already idempotent so the flag is a no-op.
+	_ = fs.Bool("force", false, "re-pull even if already present (no-op — pulls by digest are idempotent)")
 	_ = fs.Parse(args)
-	fmt.Fprintf(os.Stderr, "build-image: not implemented (force=%v) — see docs/08-phase1-checklist.md task 5\n", *force)
+	if err := upstream.EnsureBaseImage(context.Background(), *tag); err != nil {
+		fmt.Fprintf(os.Stderr, "build-image: %v\n", err)
+		os.Exit(1)
+	}
+	fmt.Printf("tagged %s as %s\n", upstream.BaseImageRef(), *tag)
 }
 
 func pullBaseCmd(args []string) {

@@ -56,3 +56,23 @@ func PullBase(ctx context.Context) error {
 	}
 	return nil
 }
+
+// EnsureBaseImage pulls the pinned upstream image (if missing) and tags
+// it as `tag` — typically "edvabe/base:latest". Idempotent: safe to
+// call on every edvabe serve boot and re-running always re-points the
+// tag at the currently pinned digest.
+func EnsureBaseImage(ctx context.Context, tag string) error {
+	if tag == "" {
+		return fmt.Errorf("EnsureBaseImage: tag is required")
+	}
+	if err := PullBase(ctx); err != nil {
+		return err
+	}
+	ref := BaseImageRef()
+	cmd := exec.CommandContext(ctx, "docker", "tag", ref, tag)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("docker tag %s %s: %w\n%s", ref, tag, err, out)
+	}
+	return nil
+}
