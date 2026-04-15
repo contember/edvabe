@@ -22,7 +22,10 @@ Legend: `[ ]` not started · `[~]` in progress · `[x]` done
       `SandboxHandle`, `Stats`, `BuildRequest` per docs/05-architecture.md.
       `internal/runtime/noop` is an in-memory impl with a `HasImage` /
       `IsPaused` test helper; used by higher-layer unit tests.
-- [~] **Task 3 — AgentProvider interface**
+- [x] **Task 3 — AgentProvider interface** (e12d6cd, 2026-04-15)
+      `internal/agent/agent.go` — `AgentProvider` interface + `InitConfig`
+      + `VolumeMount`. Imports `internal/runtime` for `EnsureImage`'s
+      Runtime arg. No impls yet; upstream impl lands in task 4/5.
 - [ ] **Task 4 — Upstream envd: binary fetcher**
 - [ ] **Task 5 — Upstream envd: base image builder**
 - [ ] **Task 6 — envd-in-Docker smoke test** (gates open question Q3)
@@ -47,9 +50,21 @@ Phase 1 is complete.
 Newest first. Keep entries tight. Reference commit hashes so future
 agents can `git show` the actual changes.
 
-### 2026-04-15 — claim task 3 (AgentProvider interface)
+### 2026-04-15 — complete task 3 (AgentProvider interface)
 
 Agent: Claude Opus 4.6 (1M context)
+
+- Added `internal/agent/agent.go` with `AgentProvider` interface plus
+  `InitConfig` and `VolumeMount` structs. Method signatures match
+  [docs/05-architecture.md](docs/05-architecture.md#agent-provider-interface);
+  `VolumeMount` kept minimal (`Name`, `MountPath`) since Phase 1 passes
+  an empty list — Phase 4 will extend as needed.
+- `EnsureImage` takes `runtime.Runtime` so the upstream impl (task 5)
+  can call `BuildImage` without a cross-package back-reference. No
+  import cycle: agent → runtime only.
+- Acceptance: `go vet ./...` clean, `go build ./...` clean.
+- Commits: `75e8c3f` (claim), `e12d6cd` (implementation).
+- No new open questions.
 
 ### 2026-04-15 — complete task 2 (Runtime interface)
 
