@@ -93,7 +93,7 @@ Legend: `[ ]` not started · `[~]` in progress · `[x]` done
       `POST /sandboxes/{id}/connect` on top of task 10. List supports
       `state`, `limit`, and `nextToken`; timeout/connect translate
       manager `ErrNotFound`/`ErrExpired` into 404/410 envelopes.
-- [ ] **Task 12 — Python SDK E2E test**
+- [~] **Task 12 — Python SDK E2E test**
 - [ ] **Task 13 — TypeScript SDK E2E test**
 - [ ] **Task 14 — Doctor subcommand**
 - [ ] **Task 15 — Tag v0.1.0**
@@ -108,6 +108,10 @@ Phase 1 is complete.
 
 Newest first. Keep entries tight. Reference commit hashes so future
 agents can `git show` the actual changes.
+
+### 2026-04-15 — claim task 12 (Python SDK E2E test)
+
+Agent: Claude Opus 4.6 (1M context)
 
 ### 2026-04-15 — claim task 11 (control plane: list + delete + timeout + connect)
 
