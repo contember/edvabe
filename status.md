@@ -61,7 +61,14 @@ Legend: `[ ]` not started · `[~]` in progress · `[x]` done
       name plus an `edvabe.sandbox.id` label. Pause/Unpause/Commit
       return phase-4 stubs. Integration tests behind
       `-tags=integration`.
-- [~] **Task 8 — Sandbox manager**
+- [x] **Task 8 — Sandbox manager** (e7da54c, 2026-04-15)
+      `internal/sandbox/` package: `Sandbox` + `State` types,
+      `Manager` with `Create/Get/List/Destroy/Connect/SetTimeout/
+      EnforceTimeouts/Run`, ID and token minting (`isb_` / `ea_` /
+      `ta_` prefixes from `crypto/rand`), injectable `Clock`
+      interface for deterministic timeout tests. Unit tests wire it
+      up against `internal/runtime/noop` + a local stub agent;
+      `-race` clean.
 - [ ] **Task 9 — Dispatch + reverse proxy**
 - [ ] **Task 10 — Control plane: health + create + get**
 - [ ] **Task 11 — Control plane: list + delete + timeout + connect**
@@ -80,6 +87,71 @@ Phase 1 is complete.
 
 Newest first. Keep entries tight. Reference commit hashes so future
 agents can `git show` the actual changes.
+
+### 2026-04-15 — complete task 8 (sandbox manager)
+
+Agent: Claude Opus 4.6 (1M context)
+
+- Shape of the `Sandbox` struct matches the
+  `docs/05-architecture.md#sandbox-state-and-persistence` sketch but
+  drops `Lifecycle` and `NetworkConfig` for Phase 1 — task 10 will add
+  them back when the HTTP handler needs to serialize `SandboxDetail`.
+  `mu` is held on the Manager, not on each sandbox — a single lock
+  keeps the code small and the contention is negligible for the
+  ~10-50 sandbox working set.
+- ID/token generation is `crypto/rand` + stdlib encodings: sandbox ID
+  is `isb_` + 16 chars base32 (10 random bytes, no padding); envd +
+  traffic tokens are `ea_`/`ta_` + 22 chars base64url (16 random
+  bytes, no padding). No `oklog/ulid` or `go-ulid` dependency — the
+  SDKs only match on the prefix, not the ULID structure. 1000-sample
+  uniqueness check is part of the unit suite.
+- Clock is a local `Clock` interface (just `Now()`) rather than
+  pulling in `clockwork`. `realClock` wraps `time.Now`, test file
+  defines a `fakeClock` with `Advance(d)` for deterministic expiry
+  tests. Watchdog is a separate `Run(ctx, interval)` that drives
+  `EnforceTimeouts` on a ticker — tests skip `Run` entirely and
+  call `EnforceTimeouts` directly after advancing the fake clock.
+- `Create` runs the full flow even in the Phase 1 skeleton:
+  `runtime.Create` → `agent.Ping` → `agent.InitAgent`. The stub
+  agent counts Ping/Init calls so the test asserts the handshake
+  fires once. On Ping/Init failure the runtime container is
+  force-destroyed before returning so nothing leaks. `Metadata`
+  and `EnvVars` are cloned into the Sandbox so later caller-side
+  mutations don't race with reads — verified by
+  `TestCreateClonesInputMaps`.
+- `Destroy` removes from the registry **first**, then calls
+  `runtime.Destroy`. This means a runtime-side failure propagates
+  the error to the caller but the Manager's map is already
+  coherent; future reconnect flows can reap orphans via the
+  `edvabe.sandbox.id` label stamped in task 7.
+- `SetTimeout` and `Connect` both return `ErrExpired` when a
+  sandbox has lapsed its TTL but hasn't been reaped yet — covered
+  by `TestSetTimeoutOnExpired` and `TestConnectExpired`. The
+  expiry check uses `!ExpiresAt.After(now)` so `now == ExpiresAt`
+  is expired (reaped). `ErrNotFound` and `ErrExpired` are the two
+  sentinel errors handlers will match on.
+- Files:
+  - `internal/sandbox/sandbox.go` — `Sandbox` struct + `State` enum.
+  - `internal/sandbox/idgen.go` — `NewSandboxID/NewEnvdToken/
+    NewTrafficToken`.
+  - `internal/sandbox/manager.go` — `Manager`, `Options`, `Clock`,
+    `CreateOptions`, the seven lifecycle methods + `Run` watchdog,
+    sentinel errors, `DefaultImage/DefaultDomain/DefaultTimeout/
+    WatchdogInterval` consts.
+  - `internal/sandbox/manager_test.go` — 16 unit tests: constructor
+    validation, Create/Get/List, map cloning, Destroy, timeout reap
+    (single + multi), SetTimeout extension/missing/expired, Connect
+    extension/missing/expired, default timeout, ID prefixes +
+    uniqueness, token prefixes. Built against `internal/runtime/noop`
+    and a local `stubAgent`.
+- Acceptance:
+  - `go vet ./...` clean, `go build ./...` clean.
+  - `go test ./internal/sandbox/...` all 16 pass.
+  - `go test -race ./internal/sandbox/...` clean (watchdog
+    concurrency path covered).
+  - `go test ./...` green across the whole unit suite.
+- Commits: `3fd97e6` (claim), `e7da54c` (implementation).
+- No new open questions.
 
 ### 2026-04-15 — claim task 8 (sandbox manager)
 
