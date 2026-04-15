@@ -52,7 +52,7 @@ Legend: `[ ]` not started · `[~]` in progress · `[x]` done
       special caps or bind mounts needed. Also fixed a latent bug:
       `Dockerfile.base` now creates the `user` account E2B SDKs
       default to (e2bdev/base ships only root).
-- [ ] **Task 7 — Docker runtime implementation**
+- [~] **Task 7 — Docker runtime implementation**
 - [ ] **Task 8 — Sandbox manager**
 - [ ] **Task 9 — Dispatch + reverse proxy**
 - [ ] **Task 10 — Control plane: health + create + get**
@@ -72,6 +72,10 @@ Phase 1 is complete.
 
 Newest first. Keep entries tight. Reference commit hashes so future
 agents can `git show` the actual changes.
+
+### 2026-04-15 — claim task 7 (Docker runtime implementation)
+
+Agent: Claude Opus 4.6 (1M context)
 
 ### 2026-04-15 — complete task 6 (envd-in-Docker smoke test)
 
