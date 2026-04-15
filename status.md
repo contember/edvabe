@@ -26,7 +26,7 @@ Legend: `[ ]` not started · `[~]` in progress · `[x]` done
       `internal/agent/agent.go` — `AgentProvider` interface + `InitConfig`
       + `VolumeMount`. Imports `internal/runtime` for `EnsureImage`'s
       Runtime arg. No impls yet; upstream impl lands in task 4/5.
-- [ ] **Task 4 — Upstream envd: binary fetcher**
+- [~] **Task 4 — Upstream envd: binary fetcher**
 - [ ] **Task 5 — Upstream envd: base image builder**
 - [ ] **Task 6 — envd-in-Docker smoke test** (gates open question Q3)
 - [ ] **Task 7 — Docker runtime implementation**
@@ -49,6 +49,10 @@ Phase 1 is complete.
 
 Newest first. Keep entries tight. Reference commit hashes so future
 agents can `git show` the actual changes.
+
+### 2026-04-15 — claim task 4 (envd binary fetcher)
+
+Agent: Claude Opus 4.6 (1M context)
 
 ### 2026-04-15 — complete task 3 (AgentProvider interface)
 
