@@ -380,3 +380,111 @@ func TestTokenPrefixes(t *testing.T) {
 		t.Error("traffic token missing ta_ prefix")
 	}
 }
+
+// fakeResolver is a test double for TemplateResolver.
+type fakeResolver struct {
+	resolutions map[string]TemplateResolution
+}
+
+func (f *fakeResolver) Resolve(idOrAlias string) (TemplateResolution, error) {
+	if r, ok := f.resolutions[idOrAlias]; ok {
+		return r, nil
+	}
+	return TemplateResolution{}, ErrTemplateNotFound
+}
+
+func newManagerWithResolver(t *testing.T, clk *fakeClock, resolver TemplateResolver) (*Manager, *noop.Runtime) {
+	t.Helper()
+	rt := noop.New()
+	m, err := NewManager(Options{
+		Runtime:  rt,
+		Agent:    &stubAgent{port: 49983},
+		Clock:    clk,
+		Resolver: resolver,
+	})
+	if err != nil {
+		t.Fatalf("NewManager: %v", err)
+	}
+	return m, rt
+}
+
+func TestCreateUsesResolver(t *testing.T) {
+	clk := newFakeClock(time.Date(2026, 4, 15, 12, 0, 0, 0, time.UTC))
+	resolver := &fakeResolver{
+		resolutions: map[string]TemplateResolution{
+			"webmaster-chrome": {
+				ImageTag: "edvabe/user-tpl_wmx:latest",
+				StartCmd: "/home/user/.chrome-start.sh",
+				ReadyCmd: "ss -tuln | grep :9222",
+			},
+		},
+	}
+	m, rt := newManagerWithResolver(t, clk, resolver)
+
+	sbx, err := m.Create(context.Background(), CreateOptions{TemplateID: "webmaster-chrome"})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if got := rt.Image(sbx.ID); got != "edvabe/user-tpl_wmx:latest" {
+		t.Fatalf("runtime received image %q", got)
+	}
+	if got := rt.StartCmd(sbx.ID); got != "/home/user/.chrome-start.sh" {
+		t.Fatalf("StartCmd not forwarded: %q", got)
+	}
+	if got := rt.ReadyCmd(sbx.ID); got != "ss -tuln | grep :9222" {
+		t.Fatalf("ReadyCmd not forwarded: %q", got)
+	}
+}
+
+func TestCreateFallsBackToBaseWhenResolverMisses(t *testing.T) {
+	clk := newFakeClock(time.Date(2026, 4, 15, 12, 0, 0, 0, time.UTC))
+	resolver := &fakeResolver{} // empty map — every lookup misses
+	m, rt := newManagerWithResolver(t, clk, resolver)
+
+	sbx, err := m.Create(context.Background(), CreateOptions{TemplateID: "nonexistent"})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if got := rt.Image(sbx.ID); got != DefaultImage {
+		t.Fatalf("fallback image should be %q, got %q", DefaultImage, got)
+	}
+	if rt.StartCmd(sbx.ID) != "" {
+		t.Fatal("StartCmd should be empty for fallback")
+	}
+}
+
+func TestCreateFallsBackWhenImageTagEmpty(t *testing.T) {
+	clk := newFakeClock(time.Date(2026, 4, 15, 12, 0, 0, 0, time.UTC))
+	resolver := &fakeResolver{
+		resolutions: map[string]TemplateResolution{
+			"pending": {ImageTag: "", StartCmd: "echo hi"},
+		},
+	}
+	m, rt := newManagerWithResolver(t, clk, resolver)
+
+	sbx, err := m.Create(context.Background(), CreateOptions{TemplateID: "pending"})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	// Empty imageTag → manager should substitute DefaultImage while
+	// still forwarding the (non-empty) start command.
+	if got := rt.Image(sbx.ID); got != DefaultImage {
+		t.Fatalf("empty imageTag should trigger base fallback, got %q", got)
+	}
+	if rt.StartCmd(sbx.ID) != "echo hi" {
+		t.Fatalf("StartCmd lost during fallback: %q", rt.StartCmd(sbx.ID))
+	}
+}
+
+func TestCreateNoResolverKeepsPhase1Behaviour(t *testing.T) {
+	clk := newFakeClock(time.Date(2026, 4, 15, 12, 0, 0, 0, time.UTC))
+	m, rt := newManagerWithResolver(t, clk, nil)
+
+	sbx, err := m.Create(context.Background(), CreateOptions{TemplateID: "anything"})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if got := rt.Image(sbx.ID); got != DefaultImage {
+		t.Fatalf("no resolver should use DefaultImage, got %q", got)
+	}
+}

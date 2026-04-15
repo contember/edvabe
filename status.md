@@ -98,7 +98,21 @@ Legend: `[ ]` not started · `[~]` in progress · `[x]` done
       task 9 lands the real docker pipe. 11 handler tests with a
       fake build manager.
 - [ ] **Task 9 — Real build executor**
-- [ ] **Task 10 — Sandbox create integration**
+- [x] **Task 10 — Sandbox create integration** (pending, 2026-04-15)
+      `internal/sandbox/manager.go` now takes a `TemplateResolver`
+      via `Options.Resolver`; at create time the manager consults it
+      and falls back to `DefaultImage` + empty start/ready commands
+      when the lookup misses or returns an empty ImageTag (preserving
+      Phase 1 behaviour). `runtime.CreateRequest` gained `StartCmd` /
+      `ReadyCmd` fields; the docker runtime merges them into the
+      container env as `EDVABE_START_CMD` / `EDVABE_READY_CMD` so
+      edvabe-init (task 6) can read them. The noop runtime grew
+      `Image()`/`StartCmd()`/`ReadyCmd()` inspectors for tests.
+      `internal/template/resolver.go` exposes a `NewSandboxResolver`
+      adapter — ID-or-alias lookup, empty-tag signalling, preferring
+      the persisted `imageTag` over the "edvabe/user-..." derivation.
+      `cmd/edvabe/main.go` wires the adapter into serve. 4 new
+      resolver tests + 4 new manager tests.
 - [ ] **Task 11 — readyCmd probe loop**
 - [ ] **Task 12 — Pause / snapshot / resume endpoints**
 - [ ] **Task 13 — autoPause lifecycle on timeout**

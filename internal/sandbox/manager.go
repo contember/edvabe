@@ -51,6 +51,29 @@ const (
 	defaultWorkdir = "/home/user"
 )
 
+// TemplateResolver maps a client-facing template identifier (alias or
+// UUID) onto a concrete image tag plus the template's startCmd /
+// readyCmd. The sandbox manager consults it at Create time — in
+// Phase 1 this returns the base image unconditionally; Phase 3
+// supplies an adapter backed by the template store so user templates
+// resolve transparently. Returning ErrTemplateNotFound falls back to
+// the base image for backward compatibility with Phase 1 callers.
+type TemplateResolver interface {
+	Resolve(idOrAlias string) (TemplateResolution, error)
+}
+
+// TemplateResolution is the resolver's output.
+type TemplateResolution struct {
+	ImageTag string
+	StartCmd string
+	ReadyCmd string
+}
+
+// ErrTemplateNotFound signals the resolver has no record of the given
+// template. The manager treats this as "use the base image" so
+// Phase 1 sandbox IDs like "base" and empty strings keep working.
+var ErrTemplateNotFound = errors.New("sandbox: template not found")
+
 // Manager holds the in-memory sandbox registry and drives create /
 // destroy / timeout enforcement. It owns no HTTP machinery — callers in
 // internal/api consume it through its exported methods.
@@ -60,6 +83,7 @@ type Manager struct {
 	clock     Clock
 	baseImage string
 	domain    string
+	resolver  TemplateResolver
 
 	mu        sync.RWMutex
 	sandboxes map[string]*Sandbox
@@ -72,6 +96,9 @@ type Options struct {
 	Clock     Clock
 	BaseImage string
 	Domain    string
+	// Resolver maps templateID → (image, startCmd, readyCmd). Optional:
+	// when nil, every create resolves to BaseImage (Phase 1 behaviour).
+	Resolver TemplateResolver
 }
 
 // NewManager constructs a Manager. Runtime and Agent are required.
@@ -97,6 +124,7 @@ func NewManager(opts Options) (*Manager, error) {
 		clock:     opts.Clock,
 		baseImage: opts.BaseImage,
 		domain:    opts.Domain,
+		resolver:  opts.Resolver,
 		sandboxes: make(map[string]*Sandbox),
 	}, nil
 }
@@ -126,18 +154,22 @@ func (m *Manager) Create(ctx context.Context, opts CreateOptions) (*Sandbox, err
 		templateID = "base"
 	}
 
+	resolution := m.resolveTemplate(templateID)
+
 	id := NewSandboxID()
 	envdToken := NewEnvdToken()
 	trafficToken := NewTrafficToken()
 
 	handle, err := m.rt.Create(ctx, runtime.CreateRequest{
 		SandboxID:  id,
-		Image:      m.resolveImage(templateID),
+		Image:      resolution.ImageTag,
 		EnvVars:    opts.EnvVars,
 		Metadata:   opts.Metadata,
 		Timeout:    opts.Timeout,
 		AgentPort:  m.ap.Port(),
 		AgentToken: envdToken,
+		StartCmd:   resolution.StartCmd,
+		ReadyCmd:   resolution.ReadyCmd,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("sandbox: create %q: runtime: %w", id, err)
@@ -181,10 +213,22 @@ func (m *Manager) Create(ctx context.Context, opts CreateOptions) (*Sandbox, err
 	return s, nil
 }
 
-// resolveImage maps a client-facing templateID to an image tag. Phase 1
-// hardcodes everything to the base image; task 10+ will extend this
-// when user templates land.
-func (m *Manager) resolveImage(string) string { return m.baseImage }
+// resolveTemplate consults the injected resolver (if any) and falls
+// back to the base image whenever the resolver has no record of the
+// given ID. This keeps Phase 1 callers (`templateID: "base"`) working
+// even while Phase 3 lets new callers hand in arbitrary user-template
+// aliases.
+func (m *Manager) resolveTemplate(templateID string) TemplateResolution {
+	if m.resolver != nil {
+		if r, err := m.resolver.Resolve(templateID); err == nil {
+			if r.ImageTag == "" {
+				r.ImageTag = m.baseImage
+			}
+			return r
+		}
+	}
+	return TemplateResolution{ImageTag: m.baseImage}
+}
 
 // Get returns the sandbox by ID or ErrNotFound.
 func (m *Manager) Get(id string) (*Sandbox, error) {

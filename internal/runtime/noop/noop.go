@@ -14,10 +14,12 @@ import (
 )
 
 type entry struct {
-	handle *runtime.SandboxHandle
-	image  string
-	envs   map[string]string
-	paused bool
+	handle   *runtime.SandboxHandle
+	image    string
+	envs     map[string]string
+	startCmd string
+	readyCmd string
+	paused   bool
 }
 
 type Runtime struct {
@@ -55,11 +57,45 @@ func (r *Runtime) Create(ctx context.Context, req runtime.CreateRequest) (*runti
 		CreatedAt:   time.Now(),
 	}
 	r.sandboxes[req.SandboxID] = &entry{
-		handle: h,
-		image:  req.Image,
-		envs:   copyStrMap(req.EnvVars),
+		handle:   h,
+		image:    req.Image,
+		envs:     copyStrMap(req.EnvVars),
+		startCmd: req.StartCmd,
+		readyCmd: req.ReadyCmd,
 	}
 	return h, nil
+}
+
+// Image returns the image tag the named sandbox was launched with,
+// or "" if the sandbox is unknown. Exposed for tests.
+func (r *Runtime) Image(sandboxID string) string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	if e, ok := r.sandboxes[sandboxID]; ok {
+		return e.image
+	}
+	return ""
+}
+
+// StartCmd / ReadyCmd return the per-sandbox template commands that
+// were forwarded through CreateRequest. Exposed for tests that
+// exercise the template resolver path.
+func (r *Runtime) StartCmd(sandboxID string) string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	if e, ok := r.sandboxes[sandboxID]; ok {
+		return e.startCmd
+	}
+	return ""
+}
+
+func (r *Runtime) ReadyCmd(sandboxID string) string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	if e, ok := r.sandboxes[sandboxID]; ok {
+		return e.readyCmd
+	}
+	return ""
 }
 
 func (r *Runtime) Destroy(ctx context.Context, sandboxID string) error {

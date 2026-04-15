@@ -99,16 +99,21 @@ func serveCmd(args []string) {
 		os.Exit(1)
 	}
 
-	domain := fmt.Sprintf("localhost:%d", *port)
-	mgr, err := sandbox.NewManager(sandbox.Options{Runtime: rt, Agent: ap, Domain: domain})
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "serve: init manager: %v\n", err)
-		os.Exit(1)
-	}
-
 	templateStore, err := template.NewStore(template.Options{Path: templateStorePath()})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "serve: init template store: %v\n", err)
+		os.Exit(1)
+	}
+
+	domain := fmt.Sprintf("localhost:%d", *port)
+	mgr, err := sandbox.NewManager(sandbox.Options{
+		Runtime:  rt,
+		Agent:    ap,
+		Domain:   domain,
+		Resolver: template.NewSandboxResolver(templateStore),
+	})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "serve: init manager: %v\n", err)
 		os.Exit(1)
 	}
 

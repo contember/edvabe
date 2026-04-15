@@ -48,7 +48,7 @@ func (r *Runtime) Create(ctx context.Context, req runtime.CreateRequest) (*runti
 
 	cfg := &container.Config{
 		Image:  req.Image,
-		Env:    envMapToSlice(req.EnvVars),
+		Env:    envMapToSliceWithEdvabeInit(req.EnvVars, req.StartCmd, req.ReadyCmd),
 		Labels: labels,
 	}
 	hostCfg := &container.HostConfig{Mounts: mounts}
@@ -101,6 +101,26 @@ func envMapToSlice(env map[string]string) []string {
 		out = append(out, k+"="+v)
 	}
 	return out
+}
+
+// envMapToSliceWithEdvabeInit merges the user's env with the
+// EDVABE_START_CMD / EDVABE_READY_CMD variables the edvabe-init
+// wrapper reads at container boot. User-supplied vars with the same
+// name would otherwise be silently overridden — that's intentional
+// since we need these values to match the template record, not an
+// attacker-controlled override.
+func envMapToSliceWithEdvabeInit(env map[string]string, startCmd, readyCmd string) []string {
+	merged := make(map[string]string, len(env)+2)
+	for k, v := range env {
+		merged[k] = v
+	}
+	if startCmd != "" {
+		merged["EDVABE_START_CMD"] = startCmd
+	}
+	if readyCmd != "" {
+		merged["EDVABE_READY_CMD"] = readyCmd
+	}
+	return envMapToSlice(merged)
 }
 
 // forceRemove is a best-effort cleanup used when a multi-step Create

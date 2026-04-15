@@ -57,6 +57,17 @@ type CreateRequest struct {
 	AgentPort  int
 	AgentToken string
 	BindMounts map[string]string
+	// StartCmd is the user-defined command from the template's
+	// setStartCmd() that the edvabe-init wrapper runs alongside envd.
+	// The runtime injects it as EDVABE_START_CMD in the container's
+	// env. Empty disables the side-process.
+	StartCmd string
+	// ReadyCmd is the command the sandbox manager probes after
+	// InitAgent succeeds (via envd's process RPC) to block
+	// sandbox-create until the template's user process reports ready.
+	// Passed into the container as EDVABE_READY_CMD for diagnostics.
+	// Empty skips the probe loop — Phase 1 fast path.
+	ReadyCmd string
 }
 
 // SandboxHandle is the runtime's view of a created sandbox.
