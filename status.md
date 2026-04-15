@@ -120,7 +120,8 @@ Legend: `[ ]` not started · `[~]` in progress · `[x]` done
       full picture in one run. The original checklist had a stale envd
       binary cache check — dropped in a separate commit (f63b980) per
       the instructions.md rule for fixing task descriptions.
-- [~] **Task 15 — Tag v0.1.0**
+- [~] **Task 15 — Tag v0.1.0** (local tag created on 5ded213;
+      awaiting user confirmation before `git push origin v0.1.0`)
 
 ## Phase 2+ (not yet active)
 
@@ -136,6 +137,26 @@ agents can `git show` the actual changes.
 ### 2026-04-15 — claim task 15 (tag v0.1.0)
 
 Agent: Claude Opus 4.6 (1M context)
+
+- Docs follow-up from tasks 12/13/14 resolved: README rewritten with
+  the four env vars and a working Python snippet, `docs/03-api-surface.md`
+  corrected (the old "dispatch without wildcard DNS" claim ignored
+  that the SDK defaults to HTTPS), new top-level `CHANGELOG.md` with
+  the v0.1.0 entry.
+- Ran the full acceptance battery on this host:
+  - `make build test lint` → clean (`go vet` clean, golangci-lint not
+    installed so skipped per Makefile).
+  - `make test-e2e-python` → 6/6 passed, 2.63s.
+  - `make test-e2e-ts` → 6/6 passed, 2.78s.
+  - `./bin/edvabe doctor` → 4/4 OK, exit 0.
+- Annotated tag `v0.1.0` created **locally** on `5ded213`
+  (`git tag -a v0.1.0 -m ...`). **Not pushed.** Per the execute-with-
+  care rule, pushing tags is a visible-to-others, hard-to-reverse
+  action and needs explicit user confirmation; the session log will
+  be updated to [x] once the user greenlights the push.
+- Commits: `5ded213` (release prep).
+- Open follow-ups: push the tag once the user confirms, then open
+  Phase 2 planning per `docs/06-phases.md`.
 
 ### 2026-04-15 — claim task 14 (doctor subcommand)
 
