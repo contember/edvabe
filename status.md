@@ -69,7 +69,7 @@ Legend: `[ ]` not started · `[~]` in progress · `[x]` done
       interface for deterministic timeout tests. Unit tests wire it
       up against `internal/runtime/noop` + a local stub agent;
       `-race` clean.
-- [ ] **Task 9 — Dispatch + reverse proxy**
+- [~] **Task 9 — Dispatch + reverse proxy**
 - [ ] **Task 10 — Control plane: health + create + get**
 - [ ] **Task 11 — Control plane: list + delete + timeout + connect**
 - [ ] **Task 12 — Python SDK E2E test**
@@ -87,6 +87,10 @@ Phase 1 is complete.
 
 Newest first. Keep entries tight. Reference commit hashes so future
 agents can `git show` the actual changes.
+
+### 2026-04-15 — claim task 9 (dispatch + reverse proxy)
+
+Agent: Claude Opus 4.6 (1M context)
 
 ### 2026-04-15 — complete task 8 (sandbox manager)
 
