@@ -45,7 +45,7 @@ Legend: `[ ]` not started · `[~]` in progress · `[x]` done
       + `curl /health` → 204. envd logs three cgroup-creation warnings,
       falls back to no-op cgroup manager (Q3 finding — full write-up in
       task 6).
-- [ ] **Task 6 — envd-in-Docker smoke test** (gates open question Q3)
+- [~] **Task 6 — envd-in-Docker smoke test** (gates open question Q3)
 - [ ] **Task 7 — Docker runtime implementation**
 - [ ] **Task 8 — Sandbox manager**
 - [ ] **Task 9 — Dispatch + reverse proxy**
@@ -66,6 +66,10 @@ Phase 1 is complete.
 
 Newest first. Keep entries tight. Reference commit hashes so future
 agents can `git show` the actual changes.
+
+### 2026-04-15 — reclaim task 6 (envd-in-Docker smoke test)
+
+Agent: Claude Opus 4.6 (1M context)
 
 ### 2026-04-15 — complete task 5 rework (multi-stage envd build)
 
