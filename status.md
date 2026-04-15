@@ -103,7 +103,7 @@ Legend: `[ ]` not started · `[~]` in progress · `[x]` done
       documented that clients must set `E2B_SANDBOX_URL=http://localhost:3000`
       so the SDK skips `https://49983-<id>.<domain>` host synthesis and
       routes through edvabe using the `E2b-Sandbox-Id`/`Port` headers.
-- [x] **Task 13 — TypeScript SDK E2E test** (TBD, 2026-04-15)
+- [x] **Task 13 — TypeScript SDK E2E test** (fedfdd4, 2026-04-15)
       `test/e2e/ts/{package.json,tsconfig.json,test_basic.ts}` + `Makefile`
       target `test-e2e-ts`. Uses `e2b@2.19.0` + `tsx --test` on node 24's
       built-in test runner; six tests mirror the Python suite exactly
