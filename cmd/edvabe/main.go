@@ -1,10 +1,13 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"io"
 	"os"
+
+	"github.com/contember/edvabe/internal/agent/upstream"
 )
 
 const (
@@ -29,8 +32,8 @@ func main() {
 		doctorCmd(args)
 	case "build-image":
 		buildImageCmd(args)
-	case "fetch-envd":
-		fetchEnvdCmd(args)
+	case "pull-base":
+		pullBaseCmd(args)
 	case "help", "-h", "--help":
 		usage(os.Stdout)
 	default:
@@ -49,8 +52,8 @@ Usage:
 Commands:
   serve         Start the HTTP server
   doctor        Run preflight checks
-  build-image   Build edvabe/base:latest Docker image
-  fetch-envd    Download upstream envd binary to cache
+  build-image   Tag pulled e2bdev/base as edvabe/base:latest
+  pull-base     Pull the pinned upstream e2bdev/base image
   version       Print version and exit
   help          Show this help
 
@@ -79,9 +82,13 @@ func buildImageCmd(args []string) {
 	fmt.Fprintf(os.Stderr, "build-image: not implemented (force=%v) — see docs/08-phase1-checklist.md task 5\n", *force)
 }
 
-func fetchEnvdCmd(args []string) {
-	fs := flag.NewFlagSet("fetch-envd", flag.ExitOnError)
-	v := fs.String("version", "0.5.7", "envd version to fetch")
+func pullBaseCmd(args []string) {
+	fs := flag.NewFlagSet("pull-base", flag.ExitOnError)
 	_ = fs.Parse(args)
-	fmt.Fprintf(os.Stderr, "fetch-envd: not implemented (version=%q) — see docs/08-phase1-checklist.md task 4\n", *v)
+	ref := upstream.BaseImageRef()
+	if err := upstream.PullBase(context.Background()); err != nil {
+		fmt.Fprintf(os.Stderr, "pull-base: %v\n", err)
+		os.Exit(1)
+	}
+	fmt.Printf("pulled %s\n", ref)
 }
