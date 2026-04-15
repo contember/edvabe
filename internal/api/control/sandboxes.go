@@ -84,8 +84,8 @@ func createSandbox(manager sandboxManager, provider versionProvider, w http.Resp
 	}
 
 	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
 	if err := json.NewEncoder(w).Encode(toSandboxResponse(manager, provider, sbx)); err != nil {
-		api.WriteError(w, http.StatusInternalServerError, "encode response")
 		return
 	}
 }

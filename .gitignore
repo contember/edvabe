@@ -23,3 +23,8 @@ Thumbs.db
 
 # Project-specific
 assets/envd-*
+
+# Python E2E test artifacts
+test/e2e/python/.venv/
+test/e2e/python/__pycache__/
+test/e2e/python/.pytest_cache/

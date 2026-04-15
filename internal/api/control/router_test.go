@@ -64,7 +64,7 @@ func TestCreateAndGetSandbox(t *testing.T) {
 	createRec := httptest.NewRecorder()
 	h.ServeHTTP(createRec, createReq)
 
-	if createRec.Code != http.StatusOK {
+	if createRec.Code != http.StatusCreated {
 		t.Fatalf("create status = %d, body = %s", createRec.Code, createRec.Body.String())
 	}
 
@@ -129,7 +129,7 @@ func TestListDeleteTimeoutAndConnect(t *testing.T) {
 		req.Header.Set("X-API-Key", "dev")
 		rec := httptest.NewRecorder()
 		h.ServeHTTP(rec, req)
-		if rec.Code != http.StatusOK {
+		if rec.Code != http.StatusCreated {
 			t.Fatalf("create %d status = %d body=%s", i, rec.Code, rec.Body.String())
 		}
 		var created sandboxResponse
