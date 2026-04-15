@@ -195,7 +195,28 @@ Legend: `[ ]` not started · `[~]` in progress · `[x]` done
       test `TestDockerRuntimePauseUnpauseCommit` passes in 0.34 s.
       Fixed the old stub test at the same time (it asserted
       not-implemented errors — now asserts argument validation).
-- [~] **Task 13 — autoPause lifecycle on timeout**
+- [x] **Task 13 — autoPause lifecycle on timeout** (fba964c, 2026-04-15)
+      `internal/sandbox/sandbox.go` — new `OnTimeoutMode` type with
+      `OnTimeoutKill` (default) / `OnTimeoutPause` constants stored on
+      each `Sandbox`. `internal/sandbox/manager.go` — `CreateOptions`
+      gains `OnTimeout`; `EnforceTimeouts` now walks the registry and,
+      per sandbox, either destroys (kill mode, pre-task-13 behaviour)
+      or calls `runtime.Pause` + flips `State` to paused (pause mode).
+      Paused sandboxes are skipped on subsequent sweeps so their TTL
+      stops ticking — they sit in the registry until `/connect`
+      unpauses them (task 12's Connect path already handles that) or
+      an explicit `DELETE` reaps them. A `runtime.Pause` failure
+      falls back to destroy so the registry never holds a half-state
+      sandbox. `internal/api/control/sandboxes.go` — `newSandboxRequest`
+      accepts `autoPause: bool` and `lifecycle: {onTimeout}`;
+      `resolveOnTimeout` gives `lifecycle.onTimeout` precedence over
+      `autoPause`, with unknown `onTimeout` strings silently falling
+      through to kill (typo-safe default). `sandboxDetailResponse`
+      echoes the stored mode and sets `lifecycle.autoResume.enabled =
+      true` for paused sandboxes. 4 new manager tests (pause-on-
+      timeout, kill-on-timeout, default-is-kill, pause-failure
+      fallback) + 3 new handler tests (autoPause shortcut, explicit
+      lifecycle, default kill). Full `go test -race ./...` green.
 - [ ] **Task 14 — TypeScript template-build E2E**
 - [ ] **Task 15 — Webmaster chrome template acceptance**
 
@@ -323,6 +344,54 @@ Phase 1 is complete.
 
 Newest first. Keep entries tight. Reference commit hashes so future
 agents can `git show` the actual changes.
+
+### 2026-04-15 — complete task 13 (autoPause lifecycle on timeout)
+
+Agent: Claude Opus 4.6 (1M context)
+
+- `internal/sandbox/sandbox.go` — new `OnTimeoutMode` enum
+  (`OnTimeoutKill` default, `OnTimeoutPause`) stored on every
+  `Sandbox`. Matches the `"kill" | "pause"` strings the SDK sends
+  in `NewSandbox.lifecycle.onTimeout`.
+- `internal/sandbox/manager.go` — `CreateOptions.OnTimeout` + a
+  rewrite of `EnforceTimeouts`. The sweep now partitions expired
+  sandboxes by mode: kill-mode sandboxes still get dropped from
+  the registry and runtime.Destroy'd (old behaviour), pause-mode
+  sandboxes stay in the registry and get runtime.Pause'd, flipping
+  their `State` to `StatePaused`. Already-paused sandboxes are
+  skipped on subsequent sweeps so their TTL stops ticking once
+  they're frozen — they sit there until `/connect` resumes them
+  (task 12's Connect path already handles unpause) or an explicit
+  `DELETE` reaps them. If `runtime.Pause` errors out, the fallback
+  is `runtime.Destroy` so the registry never holds a half-state
+  sandbox — best-effort semantics mirror the kill branch.
+- `internal/api/control/sandboxes.go` — `newSandboxRequest` grows
+  `autoPause: bool` and `lifecycle: {onTimeout}`. New
+  `resolveOnTimeout` helper picks a mode: `lifecycle.onTimeout`
+  wins over `autoPause` (matching SDK precedence), unknown
+  `onTimeout` values silently fall through to `kill` so a typo
+  can't silently leak a container. `sandboxDetailResponse` echoes
+  the stored mode and sets `lifecycle.autoResume.enabled = true`
+  for paused sandboxes so the SDK's resume flow is visible. The
+  existing `sandboxAutoResumeMode` shape unchanged.
+- Tests: 4 new manager tests (pause-on-timeout keeps sandbox
+  present + paused, kill-on-timeout reaps, default-is-kill,
+  pause-failure falls back to destroy via a
+  `failingPauseRuntime` wrapper) + 3 new handler tests (autoPause
+  shortcut round-trips, explicit lifecycle round-trips, default
+  reports kill). No new helpers needed on the noop runtime —
+  task 12's `IsPaused` does the job.
+- Acceptance: `go vet ./...` clean, `go test -race -count=1 ./...`
+  green across all 13 package suites (the sandbox + control
+  suites are the spec-cited ones).
+- Semantics: paused sandboxes' TTL no longer ticks — they're
+  effectively in cold storage until the client resumes or
+  deletes. This matches E2B's real behaviour. A future Phase 3+
+  task might add a separate "paused TTL" for registry cleanup,
+  but that's out of scope here.
+- Unblocks task 14 (TS E2E with template.build + pause + connect
+  loop) since the full pause lifecycle is now exercisable from
+  the HTTP layer.
 
 ### 2026-04-15 — claim task 13 (autoPause lifecycle on timeout)
 
