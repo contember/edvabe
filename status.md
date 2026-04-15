@@ -172,7 +172,29 @@ Legend: `[ ]` not started · `[~]` in progress · `[x]` done
       error on probe failure). Also updated the two in-repo
       stub AgentProviders (sandbox + control router) with the
       new method.
-- [~] **Task 12 — Pause / snapshot / resume endpoints**
+- [x] **Task 12 — Pause / snapshot / resume endpoints** (174a0ef, 2026-04-15)
+      `internal/runtime/docker/destroy.go` + `build.go` drop the
+      stubs in favor of real `ContainerPause`/`ContainerUnpause`/
+      `ContainerCommit` calls; the commit captures the writable
+      filesystem layer but not process memory (documented).
+      `internal/sandbox/manager.go` grows `Pause(id)`,
+      `Snapshot(id, name) (*SnapshotInfo, error)`, and teaches
+      `Connect` to unpause a paused sandbox on the way back to
+      running. Snapshot names default to `snap-<timestamp>` when
+      empty; image tag format is
+      `edvabe/snapshot-<sandboxID>:<name>`.
+      `internal/api/control/sandboxes.go` + `router.go` add
+      `POST /sandboxes/{id}/pause` (204),
+      `POST /sandboxes/{id}/snapshots` (201 + SnapshotInfo body),
+      and `POST /sandboxes/{id}/resume` as the deprecated alias
+      for `/connect` (routed through the same unpause path).
+      5 new manager tests (pause idempotency, NotFound,
+      connect-unpauses, snapshot commit, snapshot name fallback)
+      + HTTP handler test covering the full
+      create → pause → snapshot → resume loop. Docker integration
+      test `TestDockerRuntimePauseUnpauseCommit` passes in 0.34 s.
+      Fixed the old stub test at the same time (it asserted
+      not-implemented errors — now asserts argument validation).
 - [ ] **Task 13 — autoPause lifecycle on timeout**
 - [ ] **Task 14 — TypeScript template-build E2E**
 - [ ] **Task 15 — Webmaster chrome template acceptance**
@@ -301,6 +323,49 @@ Phase 1 is complete.
 
 Newest first. Keep entries tight. Reference commit hashes so future
 agents can `git show` the actual changes.
+
+### 2026-04-15 — complete task 12 (pause / snapshot / resume endpoints)
+
+Agent: Claude Opus 4.6 (1M context)
+
+- `internal/runtime/docker/destroy.go` + `build.go` —
+  `ContainerPause` / `ContainerUnpause` / `ContainerCommit` replace
+  the `not implemented` stubs. The Commit path uses
+  `ContainerCommitOptions.Reference` for the target tag. Comments
+  make the "filesystem-only, not memory" semantics explicit.
+- `internal/sandbox/manager.go` — `Pause(id)` flips the sandbox
+  `State` to `paused` after the runtime call succeeds; idempotent
+  when already paused. `Snapshot(id, name)` mints an
+  `edvabe/snapshot-<id>:<name>` tag (defaulting the name to
+  `snap-<clock>` when empty) and returns `SnapshotInfo{Name,
+  ImageTag, CreatedAt}`. `Connect` now notices `StatePaused` and
+  calls `runtime.Unpause` before returning, closing the resume
+  loop. Locking is split so no mutex is held across the runtime
+  RPC.
+- `internal/api/control/sandboxes.go` + `router.go` —
+  `POST /sandboxes/{id}/pause` (204),
+  `POST /sandboxes/{id}/snapshots` (201 + body), and
+  `POST /sandboxes/{id}/resume` as a deprecated alias for
+  `/connect`. Resume accepts an empty body and falls back to
+  `DefaultTimeout` in that case, matching the legacy SDK.
+- Tests: 5 new sandbox manager tests plus a full HTTP test for
+  create → pause → snapshot → resume, driven through the real
+  router (`newTestControlRouter`). Also stood up a
+  `newTestManagerWithRuntime` helper so tests can peek at the
+  noop runtime's `IsPaused` / `HasImage` hooks without going
+  through the (stubAgent-returning) legacy helper. Old
+  `TestPauseUnpauseCommitStubs` now asserts argument validation
+  — the stubs are gone.
+- Acceptance: `go vet ./...` clean, `go test -race ./...` green
+  across all 13 package suites,
+  `go test -tags=integration -run TestDockerRuntimePauseUnpauseCommit
+  ./internal/runtime/docker/...` passes in 0.34 s against the
+  real Docker daemon (verifies docker pause state, unpause
+  recovery, and that `docker commit` produces an inspectable
+  image tag).
+- Unblocks task 13 (autoPause lifecycle — pure Go wiring over
+  this) and lets task 14/15 exercise the full pause loop end-to-
+  end.
 
 ### 2026-04-15 — claim task 12 (pause / snapshot / resume endpoints)
 
