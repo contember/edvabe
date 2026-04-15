@@ -45,7 +45,13 @@ Legend: `[ ]` not started · `[~]` in progress · `[x]` done
       + `curl /health` → 204. envd logs three cgroup-creation warnings,
       falls back to no-op cgroup manager (Q3 finding — full write-up in
       task 6).
-- [~] **Task 6 — envd-in-Docker smoke test** (gates open question Q3)
+- [x] **Task 6 — envd-in-Docker smoke test** (237e615, 2026-04-15)
+      `test/smoke/envd_in_docker.sh` exercises /health, /init, and one
+      `process.Process/Start` Connect-RPC call (`echo hello`). Resolves
+      Q3 — envd runs cleanly with `-isnotfc` in plain Docker, no
+      special caps or bind mounts needed. Also fixed a latent bug:
+      `Dockerfile.base` now creates the `user` account E2B SDKs
+      default to (e2bdev/base ships only root).
 - [ ] **Task 7 — Docker runtime implementation**
 - [ ] **Task 8 — Sandbox manager**
 - [ ] **Task 9 — Dispatch + reverse proxy**
@@ -66,6 +72,41 @@ Phase 1 is complete.
 
 Newest first. Keep entries tight. Reference commit hashes so future
 agents can `git show` the actual changes.
+
+### 2026-04-15 — complete task 6 (envd-in-Docker smoke test)
+
+Agent: Claude Opus 4.6 (1M context)
+
+- Studied envd's `/init` shape (`packages/envd/spec/envd.yaml`) and
+  `process.proto` to craft correct request bodies. Connect-RPC
+  server-stream framing: 1 byte flags + 4 bytes BE length + JSON body;
+  end-of-stream is flag `0x02` with empty trailer.
+- Manual bring-up iteration uncovered that `e2bdev/base` ships only
+  root. edvabe's `InitConfig` defaults to `DefaultUser="user"` /
+  `DefaultWorkdir="/home/user"` (docs/05-architecture.md), so
+  `process.Process/Start` failed with `invalid default user: 'user'`
+  until I added `RUN useradd -m -s /bin/bash user` +
+  passwordless-sudo line to `assets/Dockerfile.base` and rebuilt.
+  This is a latent Phase 1 blocker fix, not scope creep — the
+  sandbox manager in task 8 will need it.
+- After the Dockerfile fix, full e2e works:
+  - `GET /health` → 204
+  - `POST /init` (with `ea_smoketoken`, `defaultUser=user`) → 204
+  - `POST /process.Process/Start` with `echo hello` →
+    `StartEvent{pid}` → `DataEvent{stdout:"aGVsbG8K"}` →
+    `EndEvent{exited:true, status:"exit status 0"}` → EOS (`0x02`).
+- `test/smoke/envd_in_docker.sh` scripts all five steps (preflight,
+  start, /init, RPC, cleanup). Bash + inline python3 for Connect
+  framing; `trap cleanup EXIT` so failures never leak containers.
+- Q3 resolved in full in `docs/07-open-questions.md`:
+  - cgroup warnings at boot are benign no-op fallbacks.
+  - `-isnotfc` short-circuits MMDS — no log spam, no impact.
+  - `/init` timestamp check works at `now` without `CAP_SYS_TIME`.
+  - socat port forwarder and PTY cgroups flagged as **known gaps**
+    for Phase 2+ (not Phase 1 blockers).
+- Commits: `ead4693` (reclaim), `237e615` (implementation).
+- Task 7 (Docker runtime implementation) is next and is ungated —
+  Q3 was the blocking question.
 
 ### 2026-04-15 — reclaim task 6 (envd-in-Docker smoke test)
 
