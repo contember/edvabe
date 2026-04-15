@@ -31,7 +31,7 @@ func newTestControlRouter(t *testing.T) http.Handler {
 	if err != nil {
 		t.Fatalf("NewManager: %v", err)
 	}
-	return NewRouter(mgr, rt, stubAgent{})
+	return NewRouter(RouterOptions{Manager: mgr, Runtime: rt, Provider: stubAgent{}})
 }
 
 func TestHealthIsUnauthenticated(t *testing.T) {

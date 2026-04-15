@@ -8,6 +8,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"path/filepath"
 
 	"github.com/contember/edvabe/internal/agent/upstream"
 	api "github.com/contember/edvabe/internal/api"
@@ -15,6 +16,7 @@ import (
 	"github.com/contember/edvabe/internal/doctor"
 	"github.com/contember/edvabe/internal/runtime/docker"
 	"github.com/contember/edvabe/internal/sandbox"
+	"github.com/contember/edvabe/internal/template"
 )
 
 const (
@@ -100,7 +102,18 @@ func serveCmd(args []string) {
 		os.Exit(1)
 	}
 
-	controlHandler := control.NewRouter(mgr, rt, ap)
+	templateStore, err := template.NewStore(template.Options{Path: templateStorePath()})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "serve: init template store: %v\n", err)
+		os.Exit(1)
+	}
+
+	controlHandler := control.NewRouter(control.RouterOptions{
+		Manager:   mgr,
+		Runtime:   rt,
+		Provider:  ap,
+		Templates: templateStore,
+	})
 	proxyHandler := api.NewProxy(mgr, rt)
 	handler := api.NewRouter(controlHandler, proxyHandler)
 
@@ -153,4 +166,19 @@ func pullBaseCmd(args []string) {
 		os.Exit(1)
 	}
 	fmt.Printf("pulled %s\n", ref)
+}
+
+// templateStorePath returns ~/.local/share/edvabe/templates.json (or
+// $EDVABE_STATE_DIR/templates.json when set). Falls back to a file in
+// the current directory if the home dir cannot be resolved — better
+// to have an ugly path than to crash out before the server starts.
+func templateStorePath() string {
+	if dir := os.Getenv("EDVABE_STATE_DIR"); dir != "" {
+		return filepath.Join(dir, "templates.json")
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "edvabe-templates.json"
+	}
+	return filepath.Join(home, ".local", "share", "edvabe", "templates.json")
 }

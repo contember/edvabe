@@ -45,7 +45,19 @@ Legend: `[ ]` not started · `[~]` in progress · `[x]` done
       all the fancy builder methods (aptInstall, pipInstall, makeDir,
       rename, remove, gitClone, etc.) compile client-side to plain RUN
       before the SDK sends them, so the server only sees five types.
-- [ ] **Task 4 — Template CRUD HTTP endpoints**
+- [x] **Task 4 — Template CRUD HTTP endpoints** (pending, 2026-04-15)
+      `internal/api/control/templates.go` + updated `router.go`.
+      `NewRouter(RouterOptions{...})` replaces the positional
+      constructor; Templates field is optional so the router still
+      works without a store. Endpoints: `POST /v3/templates` (also
+      legacy `POST /templates`), `GET /templates`, `GET /templates/{id}`
+      (resolves by ID or alias), `GET /templates/aliases/{alias}`,
+      `DELETE /templates/{id}`, `PATCH /v2/templates/{id}`. Pre-mints
+      a `waiting` build entry on create so the SDK's first status poll
+      has something to report. `cmd/edvabe/main.go` now instantiates
+      the store at `~/.local/share/edvabe/templates.json` (override via
+      `EDVABE_STATE_DIR`). 11 new handler tests; Phase-1 router test
+      updated for the new constructor.
 - [ ] **Task 5 — File cache HTTP handlers**
 - [ ] **Task 6 — envd-source scratch image**
 - [ ] **Task 7 — BuildManager state machine**
