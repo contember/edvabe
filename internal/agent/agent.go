@@ -47,6 +47,13 @@ type AgentProvider interface {
 	// Ping probes agent readiness — usually a GET /health with a short
 	// retry loop. Returns nil once the agent is accepting traffic.
 	Ping(ctx context.Context, endpoint string) error
+
+	// WaitReady runs cmd through the agent's process RPC in a poll
+	// loop and returns nil once it exits with status 0. Implementations
+	// must honor ctx deadline/cancellation and back off between attempts.
+	// When cmd is empty, WaitReady returns immediately — the Phase 1
+	// fast path for templates that don't set a readyCmd.
+	WaitReady(ctx context.Context, endpoint, cmd string) error
 }
 
 // InitConfig is the payload delivered to the agent's /init endpoint.

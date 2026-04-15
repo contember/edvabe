@@ -39,9 +39,12 @@ func (c *fakeClock) Advance(d time.Duration) {
 // times each callback fired so tests can assert the manager actually
 // handshook the agent.
 type stubAgent struct {
-	port  int
-	pings int
-	inits int
+	port        int
+	pings       int
+	inits       int
+	readyCalls  int
+	readyCmds   []string
+	readyErr    error
 }
 
 func (s *stubAgent) Name() string    { return "stub" }
@@ -60,6 +63,12 @@ func (s *stubAgent) InitAgent(_ context.Context, _ string, _ agent.InitConfig) e
 func (s *stubAgent) Ping(_ context.Context, _ string) error {
 	s.pings++
 	return nil
+}
+
+func (s *stubAgent) WaitReady(_ context.Context, _ string, cmd string) error {
+	s.readyCalls++
+	s.readyCmds = append(s.readyCmds, cmd)
+	return s.readyErr
 }
 
 func newTestManager(t *testing.T, clk *fakeClock) (*Manager, *stubAgent) {
@@ -487,4 +496,90 @@ func TestCreateNoResolverKeepsPhase1Behaviour(t *testing.T) {
 	if got := rt.Image(sbx.ID); got != DefaultImage {
 		t.Fatalf("no resolver should use DefaultImage, got %q", got)
 	}
+}
+
+// newManagerWithAgent mirrors newManagerWithResolver but returns the
+// underlying stubAgent so tests can assert on WaitReady invocation
+// counts and inject a readyErr.
+func newManagerWithAgent(t *testing.T, clk *fakeClock, resolver TemplateResolver, ap *stubAgent) (*Manager, *noop.Runtime) {
+	t.Helper()
+	rt := noop.New()
+	m, err := NewManager(Options{
+		Runtime:  rt,
+		Agent:    ap,
+		Clock:    clk,
+		Resolver: resolver,
+	})
+	if err != nil {
+		t.Fatalf("NewManager: %v", err)
+	}
+	return m, rt
+}
+
+func TestCreateRunsReadyProbeWhenTemplateHasReadyCmd(t *testing.T) {
+	clk := newFakeClock(time.Date(2026, 4, 15, 12, 0, 0, 0, time.UTC))
+	resolver := &fakeResolver{
+		resolutions: map[string]TemplateResolution{
+			"chrome": {
+				ImageTag: "edvabe/user-chrome:latest",
+				ReadyCmd: "curl -f http://localhost:9222/json/version",
+			},
+		},
+	}
+	ap := &stubAgent{port: 49983}
+	m, _ := newManagerWithAgent(t, clk, resolver, ap)
+
+	if _, err := m.Create(context.Background(), CreateOptions{TemplateID: "chrome"}); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if ap.readyCalls != 1 {
+		t.Errorf("readyCalls = %d, want 1", ap.readyCalls)
+	}
+	if len(ap.readyCmds) != 1 || ap.readyCmds[0] != "curl -f http://localhost:9222/json/version" {
+		t.Errorf("readyCmds = %v", ap.readyCmds)
+	}
+}
+
+func TestCreateSkipsReadyProbeWhenTemplateHasNoReadyCmd(t *testing.T) {
+	clk := newFakeClock(time.Date(2026, 4, 15, 12, 0, 0, 0, time.UTC))
+	ap := &stubAgent{port: 49983}
+	m, _ := newManagerWithAgent(t, clk, nil, ap)
+
+	if _, err := m.Create(context.Background(), CreateOptions{TemplateID: "base"}); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if ap.readyCalls != 0 {
+		t.Errorf("readyCalls = %d, want 0 (fast path)", ap.readyCalls)
+	}
+}
+
+func TestCreateDestroysContainerWhenReadyProbeFails(t *testing.T) {
+	clk := newFakeClock(time.Date(2026, 4, 15, 12, 0, 0, 0, time.UTC))
+	resolver := &fakeResolver{
+		resolutions: map[string]TemplateResolution{
+			"chrome": {
+				ImageTag: "edvabe/user-chrome:latest",
+				ReadyCmd: "never-returns-0",
+			},
+		},
+	}
+	ap := &stubAgent{port: 49983, readyErr: errors.New("timed out waiting")}
+	m, rt := newManagerWithAgent(t, clk, resolver, ap)
+
+	_, err := m.Create(context.Background(), CreateOptions{TemplateID: "chrome"})
+	if err == nil {
+		t.Fatal("Create should have failed")
+	}
+	if !strings.Contains(err.Error(), "ready probe") {
+		t.Errorf("error = %v, want to contain 'ready probe'", err)
+	}
+	if ap.readyCalls != 1 {
+		t.Errorf("readyCalls = %d, want 1", ap.readyCalls)
+	}
+	// The sandbox must have been torn down — the noop runtime should
+	// have no record of it (Image returns "" for unknown IDs).
+	if len(m.List()) != 0 {
+		t.Errorf("manager still holds %d sandboxes after probe failure", len(m.List()))
+	}
+	_ = rt
 }

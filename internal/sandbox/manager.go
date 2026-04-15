@@ -190,6 +190,20 @@ func (m *Manager) Create(ctx context.Context, opts CreateOptions) (*Sandbox, err
 		return nil, fmt.Errorf("sandbox: create %q: agent init: %w", id, err)
 	}
 
+	// readyCmd is a template-defined command that must exit 0 before
+	// the sandbox is considered fully booted. The fast path (no
+	// readyCmd) returns immediately — WaitReady short-circuits on the
+	// empty string and never touches envd.
+	if resolution.ReadyCmd != "" {
+		readyCtx, cancel := context.WithTimeout(ctx, opts.Timeout)
+		err := m.ap.WaitReady(readyCtx, endpoint, resolution.ReadyCmd)
+		cancel()
+		if err != nil {
+			_ = m.rt.Destroy(ctx, id)
+			return nil, fmt.Errorf("sandbox: create %q: ready probe: %w", id, err)
+		}
+	}
+
 	now := m.clock.Now()
 	s := &Sandbox{
 		ID:           id,

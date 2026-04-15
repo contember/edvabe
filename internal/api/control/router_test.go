@@ -23,6 +23,7 @@ func (stubAgent) Port() int                                                  { r
 func (stubAgent) EnsureImage(context.Context, runtime.Runtime, string) error { return nil }
 func (stubAgent) InitAgent(context.Context, string, agent.InitConfig) error  { return nil }
 func (stubAgent) Ping(context.Context, string) error                         { return nil }
+func (stubAgent) WaitReady(context.Context, string, string) error            { return nil }
 
 func newTestControlRouter(t *testing.T) http.Handler {
 	t.Helper()
