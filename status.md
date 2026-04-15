@@ -79,8 +79,20 @@ Legend: `[ ]` not started · `[~]` in progress · `[x]` done
       `runtime.Runtime`. 9 unit tests + 11 parseHost subcases,
       includes a timing-based assertion that chunks flow without
       being coalesced by the proxy.
-- [ ] **Task 10 — Control plane: health + create + get**
-- [ ] **Task 11 — Control plane: list + delete + timeout + connect**
+- [x] **Task 10 — Control plane: health + create + get** (ac1870a, 2026-04-15)
+      `internal/api/control/` now serves `GET /health`, `POST /sandboxes`,
+      and `GET /sandboxes/{id}` behind require-only `X-API-Key` auth,
+      backed by the real sandbox manager + Docker runtime. `serve` now
+      boots the runtime, ensures `edvabe/base:latest`, starts the watchdog,
+      and exposes the first working end-to-end control plane. Added the
+      upstream envd provider (`Ping` + `/init`) and consolidated the shared
+      `{code,message}` error envelope.
+- [x] **Task 11 — Control plane: list + delete + timeout + connect** (2ab1d1f, 2026-04-15)
+      `internal/api/control/sandboxes.go` now adds `GET /v2/sandboxes`,
+      `DELETE /sandboxes/{id}`, `POST /sandboxes/{id}/timeout`, and
+      `POST /sandboxes/{id}/connect` on top of task 10. List supports
+      `state`, `limit`, and `nextToken`; timeout/connect translate
+      manager `ErrNotFound`/`ErrExpired` into 404/410 envelopes.
 - [ ] **Task 12 — Python SDK E2E test**
 - [ ] **Task 13 — TypeScript SDK E2E test**
 - [ ] **Task 14 — Doctor subcommand**
@@ -96,6 +108,91 @@ Phase 1 is complete.
 
 Newest first. Keep entries tight. Reference commit hashes so future
 agents can `git show` the actual changes.
+
+### 2026-04-15 — claim task 11 (control plane: list + delete + timeout + connect)
+
+Agent: OpenCode (gpt-5.4)
+
+### 2026-04-15 — complete task 11 (control plane: list + delete + timeout + connect)
+
+Agent: OpenCode (gpt-5.4)
+
+- Extended the task-10 control plane in `internal/api/control/` with the
+  remaining Phase-1 lifecycle endpoints owned by task 11:
+  `GET /v2/sandboxes`, `DELETE /sandboxes/{id}`,
+  `POST /sandboxes/{id}/timeout`, and `POST /sandboxes/{id}/connect`.
+- Kept the implementation minimal and manager-shaped instead of inventing a
+  second persistence layer. `listSandboxes` reuses the existing in-memory
+  registry snapshot, sorts it deterministically by `CreatedAt`/ID, supports
+  optional `state=running,paused` filtering, and implements lightweight
+  offset pagination via `limit` + `nextToken` with the response header
+  `X-Next-Token`.
+- `deleteSandbox` delegates to `Manager.Destroy`. `setSandboxTimeout` and
+  `connectSandbox` decode `{timeout}` in seconds and map manager sentinel
+  errors cleanly: `ErrNotFound` -> 404, `ErrExpired` -> 410 Gone. Running
+  sandboxes reconnect with 200 and the normal sandbox payload; no paused
+  resume path yet because pause is phase 4.
+- Added coverage in `internal/api/control/router_test.go` for the new happy
+  path flow (create x2 -> list with pagination -> connect -> timeout ->
+  delete) plus missing-sandbox connect returning 404.
+- Files:
+  - `internal/api/control/router.go`
+  - `internal/api/control/sandboxes.go`
+  - `internal/api/control/router_test.go`
+- Acceptance:
+  - `go test ./internal/api/control/...` passes.
+  - `go test ./...` passes.
+  - Live task-11 curl flow passes against `go run ./cmd/edvabe serve --port 3012`:
+    `GET /v2/sandboxes`, `POST /sandboxes/$SBX/timeout`,
+    `POST /sandboxes/$SBX/connect`, `DELETE /sandboxes/$SBX`.
+- Commits: `2ab1d1f` (implementation).
+- No new open questions.
+
+### 2026-04-15 — complete task 10 (control plane: health + create + get)
+
+Agent: OpenCode (gpt-5.4)
+
+- Added the first real control-plane slice under `internal/api/control/`:
+  `GET /health`, `POST /sandboxes`, and `GET /sandboxes/{id}`. Routing is
+  stdlib-only, scoped deliberately to task 10 — no list/delete/timeout/
+  connect yet.
+- Added `internal/api/auth.go` (`RequireAPIKey`) and
+  `internal/api/errors.go` (`WriteError`). `GET /health` stays unauthenticated;
+  sandbox routes require only a non-empty `X-API-Key` and return the E2B
+  `{code,message}` envelope on failure.
+- Added the real upstream agent provider in `internal/agent/upstream/`:
+  `Ping` polls envd `/health`, `InitAgent` POSTs `/init`, and `EnsureImage`
+  delegates to the already-pinned multi-stage base-image build. This is the
+  missing runtime/manager glue that makes `sandbox.Manager.Create` work
+  against actual containers instead of only test doubles.
+- `cmd/edvabe/main.go` now wires `serve`: optional `--docker-socket`
+  overrides `DOCKER_HOST`, Docker runtime init, `EnsureImage`, manager init,
+  watchdog goroutine, control router + proxy dispatch, and `ListenAndServe`.
+- Response shaping follows `docs/03-api-surface.md` but stays minimal:
+  create returns `sandboxID`, `envdVersion`, `envdAccessToken`,
+  `trafficAccessToken`, `domain`, `metadata`, `startedAt`, `endAt`; get adds
+  `state`, placeholder lifecycle/network config, and stats-derived fields.
+  One important fix during verification: reported `domain` now reflects the
+  actual serve port (`localhost:<port>`), not a hard-coded `localhost:3000`.
+- Files:
+  - `cmd/edvabe/main.go`
+  - `internal/agent/upstream/provider.go`
+  - `internal/agent/upstream/provider_test.go`
+  - `internal/api/auth.go`
+  - `internal/api/errors.go`
+  - `internal/api/proxy.go`
+  - `internal/api/control/health.go`
+  - `internal/api/control/router.go`
+  - `internal/api/control/router_test.go`
+  - `internal/api/control/sandboxes.go`
+- Acceptance:
+  - `go vet ./...` clean.
+  - `go test ./...` passes.
+  - Live task-10 curl flow passes against `go run ./cmd/edvabe serve --port 3011`:
+    `/health` -> 204, `POST /sandboxes` returns a sandbox payload,
+    `GET /sandboxes/{id}` returns `state: "running"`.
+- Commits: `ac1870a` (implementation).
+- No new open questions.
 
 ### 2026-04-15 — complete task 9 (dispatch + reverse proxy)
 

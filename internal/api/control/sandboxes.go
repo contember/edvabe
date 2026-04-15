@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -59,6 +61,10 @@ type sandboxNetworkConfig struct {
 	DenyOut            []string `json:"denyOut"`
 }
 
+type timeoutRequest struct {
+	Timeout int `json:"timeout"`
+}
+
 func createSandbox(manager sandboxManager, provider versionProvider, w http.ResponseWriter, r *http.Request) {
 	var req newSandboxRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -85,7 +91,7 @@ func createSandbox(manager sandboxManager, provider versionProvider, w http.Resp
 }
 
 func getSandbox(manager sandboxManager, rt runtime.Runtime, provider versionProvider, w http.ResponseWriter, r *http.Request) {
-	id := strings.TrimPrefix(r.URL.Path, "/sandboxes/")
+	id := sandboxIDFromPath(r.URL.Path)
 	if id == "" || strings.Contains(id, "/") {
 		http.NotFound(w, r)
 		return
@@ -111,6 +117,155 @@ func getSandbox(manager sandboxManager, rt runtime.Runtime, provider versionProv
 	if err := json.NewEncoder(w).Encode(toSandboxDetailResponse(manager, provider, sbx, stats)); err != nil {
 		api.WriteError(w, http.StatusInternalServerError, "encode response")
 		return
+	}
+}
+
+func listSandboxes(manager sandboxManager, provider versionProvider, w http.ResponseWriter, r *http.Request) {
+	list := manager.List()
+	states := parseStateFilter(r.URL.Query().Get("state"))
+	if len(states) > 0 {
+		filtered := list[:0]
+		for _, sbx := range list {
+			if _, ok := states[sbx.State]; ok {
+				filtered = append(filtered, sbx)
+			}
+		}
+		list = filtered
+	}
+
+	sort.Slice(list, func(i, j int) bool {
+		if list[i].CreatedAt.Equal(list[j].CreatedAt) {
+			return list[i].ID < list[j].ID
+		}
+		return list[i].CreatedAt.Before(list[j].CreatedAt)
+	})
+
+	offset := 0
+	if next := r.URL.Query().Get("nextToken"); next != "" {
+		parsed, err := strconv.Atoi(next)
+		if err != nil || parsed < 0 {
+			api.WriteError(w, http.StatusBadRequest, "invalid nextToken")
+			return
+		}
+		offset = parsed
+	}
+	if offset > len(list) {
+		offset = len(list)
+	}
+
+	limit := len(list)
+	if raw := r.URL.Query().Get("limit"); raw != "" {
+		parsed, err := strconv.Atoi(raw)
+		if err != nil || parsed < 0 {
+			api.WriteError(w, http.StatusBadRequest, "invalid limit")
+			return
+		}
+		limit = parsed
+	}
+
+	page := list[offset:]
+	if limit < len(page) {
+		page = page[:limit]
+		w.Header().Set("X-Next-Token", strconv.Itoa(offset+limit))
+	}
+
+	resp := make([]sandboxResponse, 0, len(page))
+	for _, sbx := range page {
+		resp = append(resp, toSandboxResponse(manager, provider, sbx))
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(resp); err != nil {
+		api.WriteError(w, http.StatusInternalServerError, "encode response")
+		return
+	}
+}
+
+func deleteSandbox(manager sandboxManager, w http.ResponseWriter, r *http.Request) {
+	id := sandboxIDFromPath(r.URL.Path)
+	if id == "" || strings.Contains(id, "/") {
+		http.NotFound(w, r)
+		return
+	}
+	if err := manager.Destroy(r.Context(), id); err != nil {
+		if errors.Is(err, sandbox.ErrNotFound) {
+			api.WriteError(w, http.StatusNotFound, "sandbox not found")
+			return
+		}
+		api.WriteError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func setSandboxTimeout(manager sandboxManager, w http.ResponseWriter, r *http.Request) {
+	id := strings.TrimSuffix(sandboxIDFromPath(r.URL.Path), "/timeout")
+	if id == "" || strings.Contains(id, "/") {
+		http.NotFound(w, r)
+		return
+	}
+	var req timeoutRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		api.WriteError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+	if err := manager.SetTimeout(id, time.Duration(req.Timeout)*time.Second); err != nil {
+		writeManagerError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func connectSandbox(manager sandboxManager, provider versionProvider, w http.ResponseWriter, r *http.Request) {
+	id := strings.TrimSuffix(sandboxIDFromPath(r.URL.Path), "/connect")
+	if id == "" || strings.Contains(id, "/") {
+		http.NotFound(w, r)
+		return
+	}
+	var req timeoutRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		api.WriteError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+	sbx, err := manager.Connect(r.Context(), id, time.Duration(req.Timeout)*time.Second)
+	if err != nil {
+		writeManagerError(w, err)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(toSandboxResponse(manager, provider, sbx)); err != nil {
+		api.WriteError(w, http.StatusInternalServerError, "encode response")
+		return
+	}
+}
+
+func parseStateFilter(raw string) map[sandbox.State]struct{} {
+	if raw == "" {
+		return nil
+	}
+	out := make(map[sandbox.State]struct{})
+	for _, part := range strings.Split(raw, ",") {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		out[sandbox.State(part)] = struct{}{}
+	}
+	return out
+}
+
+func sandboxIDFromPath(path string) string {
+	return strings.TrimPrefix(path, "/sandboxes/")
+}
+
+func writeManagerError(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, sandbox.ErrNotFound):
+		api.WriteError(w, http.StatusNotFound, "sandbox not found")
+	case errors.Is(err, sandbox.ErrExpired):
+		api.WriteError(w, http.StatusGone, "sandbox expired")
+	default:
+		api.WriteError(w, http.StatusInternalServerError, err.Error())
 	}
 }
 
