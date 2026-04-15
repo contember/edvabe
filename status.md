@@ -110,7 +110,16 @@ Legend: `[ ]` not started · `[~]` in progress · `[x]` done
       (create/kill, commands.run, files.write/read/list, pty, watchDir).
       Ran clean on the first attempt — task-12 server fixes (201 on create,
       `E2B_SANDBOX_URL` routing) carry over, so no new edvabe bugs surfaced.
-- [~] **Task 14 — Doctor subcommand**
+- [x] **Task 14 — Doctor subcommand** (eef7eed, 2026-04-15)
+      `internal/doctor/doctor.go` runs four preflight checks and prints an
+      aligned pass/fail table: Docker socket, Docker version ≥ 20.10,
+      `edvabe/base:latest` present, bind port free. `cmd/edvabe/main.go`
+      wires `doctor` with `--port` / `--image` flags. Non-zero exit on
+      any failure; downstream checks short-circuit with `skipped: no
+      daemon connection` when the socket check fails so a user gets the
+      full picture in one run. The original checklist had a stale envd
+      binary cache check — dropped in a separate commit (f63b980) per
+      the instructions.md rule for fixing task descriptions.
 - [ ] **Task 15 — Tag v0.1.0**
 
 ## Phase 2+ (not yet active)
@@ -127,6 +136,54 @@ agents can `git show` the actual changes.
 ### 2026-04-15 — claim task 14 (doctor subcommand)
 
 Agent: Claude Opus 4.6 (1M context)
+
+### 2026-04-15 — complete task 14 (doctor subcommand)
+
+Agent: Claude Opus 4.6 (1M context)
+
+- Fixed the task-14 description first (`f63b980`): the original listed
+  "envd binary cache populated" as a fifth check, but that cache no
+  longer exists — task 5 replaced the envd download with an in-Docker
+  multi-stage build inside `edvabe/base`. Dropped the bullet and added a
+  one-paragraph note explaining why.
+- Implemented `internal/doctor/doctor.go` with four checks run
+  sequentially:
+  1. **Docker socket** — `docker.DiscoverHost` + `client.Ping` with a 3s
+     timeout.
+  2. **Docker version** — `ServerVersion` + `parseMajorMinor`
+     (hand-rolled to tolerate suffixes like `+dfsg1`); compares against
+     `minDockerMajor=20`, `minDockerMinor=10`.
+  3. **edvabe/base:latest image** — `ImageList` with a `reference=<tag>`
+     filter; on missing, suggests `edvabe build-image`.
+  4. **Port 3000 free** — `net.Listen(":N")` then immediate close; clean
+     and fast.
+- Downstream checks that depend on an already-established connection
+  reuse a `runState{host, cli}` and short-circuit to
+  `FAIL (skipped: no daemon connection)` when the socket check failed,
+  so a user without Docker running still gets a four-line report.
+- `cmd/edvabe/main.go` wires the subcommand with `--port` (defaults 3000)
+  and `--image` (defaults `sandbox.DefaultImage`). `os.Exit(1)` on any
+  failure; pure stdout for the table.
+- Unit tests in `internal/doctor/doctor_test.go` cover
+  `parseMajorMinor`, the all-pass and mixed-fail `printResults` layouts,
+  and the happy-path `checkPortFree(0)` (kernel-picked port).
+- Manually exercised:
+  - Happy path — all 4 OK, exit 0.
+  - `--image=nonexistent/tag:latest --port=22` — 2 FAIL (missing image,
+    bind perm denied), exit 1.
+  - `DOCKER_HOST=unix:///tmp/definitely-not-docker.sock` — Docker socket
+    FAIL, two downstream skipped, port OK, exit 1.
+- Files:
+  - `docs/08-phase1-checklist.md` (task-description fix, separate commit)
+  - `internal/doctor/doctor.go` (new)
+  - `internal/doctor/doctor_test.go` (new)
+  - `cmd/edvabe/main.go` (stub → real wiring)
+- Acceptance:
+  - `go test ./...` passes.
+  - `./bin/edvabe doctor` on this host prints 4 × OK with exit 0.
+- Commits: `f63b980` (checklist fix), `eef7eed` (implementation).
+- Open follow-ups: none new. Task 15 (tag v0.1.0) is next; still needs
+  the `E2B_SANDBOX_URL` docs update flagged in tasks 12/13.
 
 ### 2026-04-15 — claim task 13 (TypeScript SDK E2E test)
 
