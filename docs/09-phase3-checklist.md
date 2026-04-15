@@ -214,8 +214,15 @@ locally before the first user build runs.
 ./bin/edvabe build-image
 docker image inspect edvabe/envd-source:latest | jq '.[0].RepoTags'
 # both edvabe/base:latest and edvabe/envd-source:latest present
-docker run --rm --entrypoint sh edvabe/envd-source \
-  -c 'test -x /usr/local/bin/envd && test -x /usr/local/bin/edvabe-init'
+
+# The final stage is `FROM scratch`, so there is no /bin/sh to exec
+# into. Verify the files exist by copying them out of a throwaway
+# container instead:
+cid=$(docker create edvabe/envd-source:latest)
+docker cp "$cid":/usr/local/bin/envd         /tmp/envd.bin
+docker cp "$cid":/usr/local/bin/edvabe-init  /tmp/edvabe-init.sh
+docker rm "$cid"
+test -s /tmp/envd.bin && test -s /tmp/edvabe-init.sh
 ```
 
 **Depends on.** Task 3 (translator references the image tag; agree on
