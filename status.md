@@ -195,7 +195,7 @@ Legend: `[ ]` not started · `[~]` in progress · `[x]` done
       test `TestDockerRuntimePauseUnpauseCommit` passes in 0.34 s.
       Fixed the old stub test at the same time (it asserted
       not-implemented errors — now asserts argument validation).
-- [ ] **Task 13 — autoPause lifecycle on timeout**
+- [~] **Task 13 — autoPause lifecycle on timeout**
 - [ ] **Task 14 — TypeScript template-build E2E**
 - [ ] **Task 15 — Webmaster chrome template acceptance**
 
@@ -323,6 +323,10 @@ Phase 1 is complete.
 
 Newest first. Keep entries tight. Reference commit hashes so future
 agents can `git show` the actual changes.
+
+### 2026-04-15 — claim task 13 (autoPause lifecycle on timeout)
+
+Agent: Claude Opus 4.6 (1M context)
 
 ### 2026-04-15 — complete task 12 (pause / snapshot / resume endpoints)
 
