@@ -5,9 +5,15 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"log"
+	"net/http"
 	"os"
 
 	"github.com/contember/edvabe/internal/agent/upstream"
+	api "github.com/contember/edvabe/internal/api"
+	"github.com/contember/edvabe/internal/api/control"
+	"github.com/contember/edvabe/internal/runtime/docker"
+	"github.com/contember/edvabe/internal/sandbox"
 )
 
 const (
@@ -66,7 +72,44 @@ func serveCmd(args []string) {
 	port := fs.Int("port", 3000, "HTTP port to listen on")
 	socket := fs.String("docker-socket", "", "Path to Docker socket (auto-detected if empty)")
 	_ = fs.Parse(args)
-	fmt.Fprintf(os.Stderr, "serve: not implemented (port=%d, socket=%q) — see docs/08-phase1-checklist.md task 10\n", *port, *socket)
+	if *socket != "" {
+		if err := os.Setenv("DOCKER_HOST", "unix://"+*socket); err != nil {
+			fmt.Fprintf(os.Stderr, "serve: set DOCKER_HOST: %v\n", err)
+			os.Exit(1)
+		}
+	}
+
+	rt, err := docker.New()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "serve: init runtime: %v\n", err)
+		os.Exit(1)
+	}
+	defer func() { _ = rt.Close() }()
+
+	ap := upstream.New()
+	if err := ap.EnsureImage(context.Background(), rt, sandbox.DefaultImage); err != nil {
+		fmt.Fprintf(os.Stderr, "serve: ensure image: %v\n", err)
+		os.Exit(1)
+	}
+
+	domain := fmt.Sprintf("localhost:%d", *port)
+	mgr, err := sandbox.NewManager(sandbox.Options{Runtime: rt, Agent: ap, Domain: domain})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "serve: init manager: %v\n", err)
+		os.Exit(1)
+	}
+
+	controlHandler := control.NewRouter(mgr, rt, ap)
+	proxyHandler := api.NewProxy(mgr, rt)
+	handler := api.NewRouter(controlHandler, proxyHandler)
+
+	addr := fmt.Sprintf(":%d", *port)
+	go mgr.Run(context.Background(), 0)
+	log.Printf("edvabe listening on %s", addr)
+	if err := http.ListenAndServe(addr, handler); err != nil {
+		fmt.Fprintf(os.Stderr, "serve: %v\n", err)
+		os.Exit(1)
+	}
 }
 
 func doctorCmd(args []string) {

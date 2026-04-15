@@ -2,7 +2,6 @@ package api
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -50,36 +49,36 @@ func NewProxy(lookup SandboxLookup, resolver AgentResolver) http.Handler {
 			pr.Out.Host = target.Host
 		},
 		ErrorHandler: func(w http.ResponseWriter, _ *http.Request, err error) {
-			writeErrorEnvelope(w, http.StatusBadGateway, fmt.Sprintf("upstream: %v", err))
+			WriteError(w, http.StatusBadGateway, fmt.Sprintf("upstream: %v", err))
 		},
 	}
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		id := r.Header.Get(HeaderSandboxID)
 		if id == "" {
-			writeErrorEnvelope(w, http.StatusBadRequest, "missing E2b-Sandbox-Id header")
+			WriteError(w, http.StatusBadRequest, "missing E2b-Sandbox-Id header")
 			return
 		}
 
 		if _, err := lookup.Get(id); err != nil {
 			if errors.Is(err, sandbox.ErrNotFound) {
-				writeErrorEnvelope(w, http.StatusNotFound, fmt.Sprintf("sandbox %q not found", id))
+				WriteError(w, http.StatusNotFound, fmt.Sprintf("sandbox %q not found", id))
 				return
 			}
-			writeErrorEnvelope(w, http.StatusInternalServerError, err.Error())
+			WriteError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
 
 		host, port, err := resolver.AgentEndpoint(id)
 		if err != nil {
-			writeErrorEnvelope(w, http.StatusInternalServerError,
+			WriteError(w, http.StatusInternalServerError,
 				fmt.Sprintf("agent endpoint for %q: %v", id, err))
 			return
 		}
 
 		target, err := url.Parse(fmt.Sprintf("http://%s:%d", host, port))
 		if err != nil {
-			writeErrorEnvelope(w, http.StatusInternalServerError,
+			WriteError(w, http.StatusInternalServerError,
 				fmt.Sprintf("invalid target URL for %q: %v", id, err))
 			return
 		}
@@ -93,16 +92,3 @@ func NewProxy(lookup SandboxLookup, resolver AgentResolver) http.Handler {
 // URL from the outer handler into the shared ReverseProxy's Rewrite
 // callback. Unexported so no other package can collide on the key.
 type proxyTargetKey struct{}
-
-// writeErrorEnvelope writes a minimal E2B-shaped `{code, message}` JSON
-// error body. Task 10 will consolidate this into a shared helper in
-// internal/api/errors.go and every handler will use that; for now this
-// stays local to the proxy.
-func writeErrorEnvelope(w http.ResponseWriter, code int, message string) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(code)
-	_ = json.NewEncoder(w).Encode(map[string]any{
-		"code":    code,
-		"message": message,
-	})
-}
