@@ -17,7 +17,11 @@ Legend: `[ ]` not started · `[~]` in progress · `[x]` done
       `go.mod`, `cmd/edvabe/main.go` CLI with serve/doctor/build-image/fetch-envd/version
       stubs, `Makefile`, `.gitignore`, `README.md`. `make build && ./bin/edvabe version`
       prints correctly; `go vet ./...` clean.
-- [~] **Task 2 — Runtime interface**
+- [x] **Task 2 — Runtime interface** (b396ca4, 2026-04-15)
+      `internal/runtime/runtime.go` defines `Runtime` + `CreateRequest`,
+      `SandboxHandle`, `Stats`, `BuildRequest` per docs/05-architecture.md.
+      `internal/runtime/noop` is an in-memory impl with a `HasImage` /
+      `IsPaused` test helper; used by higher-layer unit tests.
 - [ ] **Task 3 — AgentProvider interface**
 - [ ] **Task 4 — Upstream envd: binary fetcher**
 - [ ] **Task 5 — Upstream envd: base image builder**
@@ -43,9 +47,25 @@ Phase 1 is complete.
 Newest first. Keep entries tight. Reference commit hashes so future
 agents can `git show` the actual changes.
 
-### 2026-04-15 — claim task 2 (Runtime interface)
+### 2026-04-15 — complete task 2 (Runtime interface)
 
 Agent: Claude Opus 4.6 (1M context)
+
+- Added `internal/runtime/runtime.go` with `Runtime` interface and the
+  `CreateRequest`, `SandboxHandle`, `Stats`, `BuildRequest` shared types.
+  Signatures match [docs/05-architecture.md](docs/05-architecture.md#runtime-interface).
+- Added `internal/runtime/noop/noop.go` — in-memory impl that also
+  exposes `HasImage` and `IsPaused` helpers so higher layers can assert
+  Commit/BuildImage/Pause plumbing in their tests without needing a real
+  runtime.
+- Added `internal/runtime/noop/noop_test.go` — covers create/inspect
+  (via `AgentEndpoint` + `Stats`) /destroy, duplicate-create rejection,
+  Pause/Unpause, Commit + BuildImage, and missing-ID error paths.
+- Acceptance: `go vet ./...` clean, `go build ./...` clean,
+  `go test ./internal/runtime/...` passes (noop package; runtime pkg has
+  no tests — it's pure type definitions).
+- Commits: `49e3783` (claim), `b396ca4` (implementation).
+- No new open questions. No deviations from `docs/05-architecture.md`.
 
 ### 2026-04-15 — initial design, docs, and Phase 1 Task 1
 
