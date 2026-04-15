@@ -103,7 +103,13 @@ Legend: `[ ]` not started · `[~]` in progress · `[x]` done
       documented that clients must set `E2B_SANDBOX_URL=http://localhost:3000`
       so the SDK skips `https://49983-<id>.<domain>` host synthesis and
       routes through edvabe using the `E2b-Sandbox-Id`/`Port` headers.
-- [~] **Task 13 — TypeScript SDK E2E test**
+- [x] **Task 13 — TypeScript SDK E2E test** (TBD, 2026-04-15)
+      `test/e2e/ts/{package.json,tsconfig.json,test_basic.ts}` + `Makefile`
+      target `test-e2e-ts`. Uses `e2b@2.19.0` + `tsx --test` on node 24's
+      built-in test runner; six tests mirror the Python suite exactly
+      (create/kill, commands.run, files.write/read/list, pty, watchDir).
+      Ran clean on the first attempt — task-12 server fixes (201 on create,
+      `E2B_SANDBOX_URL` routing) carry over, so no new edvabe bugs surfaced.
 - [ ] **Task 14 — Doctor subcommand**
 - [ ] **Task 15 — Tag v0.1.0**
 
@@ -121,6 +127,40 @@ agents can `git show` the actual changes.
 ### 2026-04-15 — claim task 13 (TypeScript SDK E2E test)
 
 Agent: Claude Opus 4.6 (1M context)
+
+### 2026-04-15 — complete task 13 (TypeScript SDK E2E test)
+
+Agent: Claude Opus 4.6 (1M context)
+
+- Added `test/e2e/ts/` mirroring `test/e2e/python/`: `package.json` with
+  `e2b@2.19.0` + `tsx@4.19.2`, `tsconfig.json`, `test_basic.ts`. Runs via
+  node 24's built-in test runner (`tsx --test test_basic.ts`) so no vitest
+  / jest dependency.
+- Six tests 1:1 with Python: create+kill, `commands.run`, `files.write/read`,
+  `files.list`, `pty.create`+`sendInput`, `files.watchDir`. TS SDK exposes
+  nicer callback-style APIs for `onData` / watch, so the TS suite is
+  slightly more compact than the Python one.
+- `Makefile` target `test-e2e-ts` mirrors `test-e2e-python` (build →
+  boot serve → wait `/health` → run tests → trap teardown). First
+  attempt failed with `/bin/sh: Syntax error: "(" unexpected` because
+  dash doesn't allow env-var prefix in front of a `( subshell )`. Fixed
+  by using `cd $(E2E_TS_DIR) && ENV=... npm test` instead.
+- No new edvabe bugs surfaced. Task-12's `201 Created` + `E2B_SANDBOX_URL`
+  story carries over verbatim to the TS SDK, which reads the same env
+  var (confirmed in `e2b/dist/index.d.ts` line ~2846).
+- Files:
+  - `test/e2e/ts/package.json`
+  - `test/e2e/ts/tsconfig.json`
+  - `test/e2e/ts/test_basic.ts`
+  - `Makefile` (new `test-e2e-ts` target)
+  - `.gitignore` (ignore `node_modules`, `package-lock.json`)
+- Acceptance:
+  - `make test-e2e-ts` → 6 passed (first real run, 3.2s).
+  - `make test-e2e-python` still 6 passed (regression check).
+  - `go test ./...` passes.
+- Open follow-ups: none new. The outstanding docs update (advertise
+  `E2B_SANDBOX_URL` in README / `docs/03-api-surface.md`) from task 12
+  still pending — should land before task 15 (tag v0.1.0).
 
 ### 2026-04-15 — claim task 12 (Python SDK E2E test)
 

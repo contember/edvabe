@@ -1,0 +1,16 @@
+{
+  "name": "edvabe-e2e-ts",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "tsx --test test_basic.ts"
+  },
+  "dependencies": {
+    "e2b": "2.19.0"
+  },
+  "devDependencies": {
+    "tsx": "4.19.2",
+    "@types/node": "22.10.5",
+    "typescript": "5.7.3"
+  }
+}
