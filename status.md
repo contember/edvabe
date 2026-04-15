@@ -18,7 +18,7 @@ code interpreter overlay — see `docs/06-phases.md:11-22`. Phase 2
 
 Legend: `[ ]` not started · `[~]` in progress · `[x]` done
 
-- [x] **Task 1 — Template store skeleton** (pending, 2026-04-15)
+- [x] **Task 1 — Template store skeleton** (d76f6ef, 2026-04-15)
       `internal/template/` package: `Template`/`Build`/`BuildStatus`/`Step`
       types, ID generator (`tpl_` / `bld_` prefixes), and a JSON-backed
       `Store` with mutex-guarded CRUD, alias resolution, build append/
