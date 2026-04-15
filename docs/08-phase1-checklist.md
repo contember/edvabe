@@ -26,7 +26,7 @@ empty placeholder files so the build tree is walkable.
 **Where.**
 - `go.mod` — `go mod init github.com/<user>/edvabe` (confirm path with user first)
 - `cmd/edvabe/main.go` — CLI dispatch with subcommands: `serve`, `doctor`,
-  `version`, `build-image`, `fetch-envd`. All but `version` print
+  `version`, `build-image`, `pull-base`. All but `version` print
   "not implemented" and return 0 for now. Use `flag` or `cobra` (prefer
   stdlib `flag`).
 - `Makefile` with targets: `build`, `run`, `test`, `lint`, `clean`.
@@ -85,67 +85,70 @@ Interface compiles. No implementation yet.
 
 ---
 
-## Task 4 — Upstream envd: binary fetcher
+## Task 4 — Pin e2bdev/base image
 
-**Do.** Download the upstream envd binary from GitHub releases, cache it,
-verify sha256.
+**Do.** Pin the `e2bdev/base` Docker image by digest and provide a helper
+that ensures it's pulled locally. This is edvabe's upstream envd source:
+`e2bdev/base` is multi-arch, published by E2B, and already contains
+upstream envd baked in. Phase 1 consumes it as-is instead of fetching
+raw envd binaries (see [Q2](07-open-questions.md#Q2)).
 
 **Where.**
-- `internal/agent/upstream/fetch.go` — `Fetch(ctx, version, arch) (path
-  string, err error)`. Cache in `~/.cache/edvabe/envd/<version>/envd-linux-<arch>`.
-- Pin version constant: `const DefaultEnvdVersion = "0.5.7"` (or whatever
-  the latest upstream release is — verify on GitHub before pinning).
-- Wire `./edvabe fetch-envd [--version <v>]` to call `Fetch` and print
-  the resulting path.
+- `internal/agent/upstream/image.go` — holds three package-level consts:
+  - `DefaultEnvdVersion` — the envd version reported in Sandbox responses
+    (pinned to `"0.5.7"` per CLAUDE.md golden rule #3).
+  - `BaseImageRepo` — `"docker.io/e2bdev/base"`.
+  - `BaseImageDigest` — a digest pin. Multi-arch manifest index digest so
+    Docker picks amd64 or arm64 per host.
+  - `BaseImageRef()` returns `BaseImageRepo + "@" + BaseImageDigest`.
+- `internal/agent/upstream/image.go` — `PullBase(ctx context.Context) error`
+  helper. Phase 1 shells out to `docker pull` via `os/exec`; the Docker
+  SDK lands in task 7.
+- `cmd/edvabe/main.go` — replace the `fetch-envd` subcommand with
+  `pull-base`. Invokes `upstream.PullBase` and prints the ref on success.
 
 **Notes.**
-- Upstream release URLs look like
-  `https://github.com/e2b-dev/infra/releases/download/envd-v<version>/envd` —
-  **verify this path first** by checking https://github.com/e2b-dev/infra/releases.
-  If the release naming is different, update the convention.
-- Include sha256 verification. Either hardcode expected sum per version
-  or fetch a `.sha256` sidecar alongside the binary.
-- If no prebuilt release binary is published, fall back to `git clone` +
-  `go build` (documented as a slow path). Flag this as a risk in
-  `docs/07-open-questions.md#Q2` if encountered.
+- Pin by digest, not tag. Current pin verified 2026-04-15 via a Docker
+  registry HEAD request against `e2bdev/base:latest`:
+  `sha256:11349f027b11281645fd8b7874e94053681a0d374508067c16bf15b00e1161b2`
+  (OCI image index, ~470 MB per arch).
+- Bump procedure: re-run the HEAD request against `e2bdev/base:latest`
+  and update `BaseImageDigest`. Document in a comment next to the const.
+- No sha256 of individual files — Docker's content-addressed pull already
+  enforces integrity end-to-end.
 
 **Acceptance.**
 
 ```sh
-go run ./cmd/edvabe fetch-envd
-# prints: "fetched envd v0.5.7 -> /home/user/.cache/edvabe/envd/0.5.7/envd"
-ls -l ~/.cache/edvabe/envd/0.5.7/envd
-# file exists, executable bit set
-file ~/.cache/edvabe/envd/0.5.7/envd
-# reports: "ELF 64-bit LSB executable, x86-64" (or arm64)
+go run ./cmd/edvabe pull-base
+# prints: "pulled docker.io/e2bdev/base@sha256:11349f..."
+docker image inspect "docker.io/e2bdev/base@sha256:11349f..." --format '{{.Id}}'
+# non-empty sha256 line, exit 0
 ```
 
 ---
 
-## Task 5 — Upstream envd: base image builder
+## Task 5 — Tag e2bdev/base as edvabe/base
 
-**Do.** Generate a build context containing `Dockerfile.base` +
-the cached envd binary, then `docker build` it to tag
-`edvabe/base:latest`.
+**Do.** Pull `e2bdev/base` (via `upstream.PullBase` from task 4) and tag
+it as `edvabe/base:latest`. No separate Dockerfile or build context
+needed in Phase 1 — we consume the upstream image unchanged. Future
+phases may layer customizations on top.
 
 **Where.**
-- `assets/Dockerfile.base` — embedded Dockerfile. See
-  `docs/05-architecture.md#phase-1-implementation-internalagentupstream`
-  for the expected contents.
-- `internal/agent/upstream/image.go` — `BuildBaseImage(ctx, runtime, tag
-  string) error`. Uses `//go:embed` to pull in the Dockerfile, copies the
-  cached envd binary next to it in a tempdir, calls
-  `runtime.BuildImage()`.
-- Wire `./edvabe build-image [--force]` to call `BuildBaseImage`.
+- `internal/agent/upstream/image.go` — `EnsureBaseImage(ctx context.Context,
+  tag string) error`. Pulls if missing, then `docker tag <pinned-ref> <tag>`.
+- Wire `./edvabe build-image [--force]` to call `EnsureBaseImage` with
+  `tag = "edvabe/base:latest"`. `--force` re-pulls even if already present.
 
 **Acceptance.**
 
 ```sh
-go run ./cmd/edvabe fetch-envd
+go run ./cmd/edvabe pull-base
 go run ./cmd/edvabe build-image
 docker images edvabe/base
 # REPOSITORY          TAG       IMAGE ID   CREATED         SIZE
-# edvabe/base         latest    ...        seconds ago     ~400MB
+# edvabe/base         latest    ...        ...             ~470MB
 
 docker run --rm -d --name edvabe-smoke -p 49983:49983 edvabe/base:latest
 curl -sf http://localhost:49983/health

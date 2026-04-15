@@ -486,17 +486,18 @@ unless `--preserve-on-exit`, closes the listener.
 ## Single Go binary
 
 Output: one statically-linked binary, embedded assets via `//go:embed`. No
-separate agent binary shipped by edvabe itself (upstream envd is fetched
-from GitHub on first run and cached in `~/.cache/edvabe/`).
+separate agent binary shipped by edvabe itself — upstream envd comes
+baked into E2B's `e2bdev/base` image, which edvabe pulls from Docker Hub
+on first run (see [docs/07-open-questions.md#Q2](07-open-questions.md#Q2)).
 
 ```
 $ ./edvabe serve            # start the HTTP server
 $ ./edvabe doctor           # preflight check
-$ ./edvabe build-image      # explicit (re)build of edvabe/base:latest
-$ ./edvabe fetch-envd       # pre-fetch envd binary to cache
+$ ./edvabe build-image      # tag pulled e2bdev/base as edvabe/base:latest
+$ ./edvabe pull-base        # pull upstream e2bdev/base (pre-warm cache)
 $ ./edvabe version
 ```
 
 User experience: `go install ./cmd/edvabe && edvabe serve` and everything
-works. First run takes maybe 30 seconds to fetch envd and build the base
-image; subsequent runs are instant.
+works. First run takes maybe 30-60 seconds to pull `e2bdev/base`
+(~470 MB); subsequent runs are instant.

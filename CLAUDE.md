@@ -97,8 +97,8 @@ Commands not implemented yet (Phase 1 in progress — see
 [status.md](status.md)):
 
 ```sh
-go run ./cmd/edvabe fetch-envd  # download upstream envd binary — task 4
-go run ./cmd/edvabe build-image # build edvabe/base:latest     — task 5
+go run ./cmd/edvabe pull-base   # pull upstream e2bdev/base    — task 4
+go run ./cmd/edvabe build-image # tag as edvabe/base:latest    — task 5
 ```
 
 ## Upstream E2B sources (ground truth)

@@ -78,7 +78,7 @@ Code interpreter excluded. Templates beyond `base` excluded.
 - `edvabe serve [--port 3000] [--docker-socket ...]`
 - `edvabe doctor`
 - `edvabe build-image [--force]`
-- `edvabe fetch-envd [--version ...]`
+- `edvabe pull-base`
 - `edvabe version`
 
 **Base image** (`assets/Dockerfile.base`):

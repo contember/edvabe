@@ -14,9 +14,10 @@ Full task definitions: [docs/08-phase1-checklist.md](docs/08-phase1-checklist.md
 Legend: `[ ]` not started · `[~]` in progress · `[x]` done
 
 - [x] **Task 1 — Project skeleton** (f8a8070, 2026-04-15)
-      `go.mod`, `cmd/edvabe/main.go` CLI with serve/doctor/build-image/fetch-envd/version
+      `go.mod`, `cmd/edvabe/main.go` CLI with serve/doctor/build-image/pull-base/version
       stubs, `Makefile`, `.gitignore`, `README.md`. `make build && ./bin/edvabe version`
       prints correctly; `go vet ./...` clean.
+      (Subcommand renamed fetch-envd → pull-base in task 4.)
 - [x] **Task 2 — Runtime interface** (b396ca4, 2026-04-15)
       `internal/runtime/runtime.go` defines `Runtime` + `CreateRequest`,
       `SandboxHandle`, `Stats`, `BuildRequest` per docs/05-architecture.md.

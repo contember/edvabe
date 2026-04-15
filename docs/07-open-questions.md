@@ -20,26 +20,35 @@ later is a contained change.
 polling, cgroups setup, port forwarder via socat) that work differently
 or fail loudly inside a container. Validate during Phase 1 kickoff.
 
-## Q2: How to distribute the envd binary?
+## Q2: How to distribute the envd binary? — *resolved*
 
-**The question.** edvabe needs envd inside `edvabe/base:latest`. Options:
+**Decided**: Phase 1 uses option (D'), reframed: pull E2B's own
+multi-arch `e2bdev/base` image from Docker Hub, pinned by OCI image
+index digest, and tag it as `edvabe/base:latest`. We do not ship a
+separate envd artifact and we do not maintain our own base image.
 
-- **(A) Fetch from GitHub releases on first run** → cache in
-  `~/.cache/edvabe/envd/<version>/`, use during `docker build`. Requires
-  network on first run.
-- **(B) Build envd from source** during `edvabe build-image`. Requires
-  Go toolchain on the host.
-- **(C) Bundle envd inside the edvabe binary via `//go:embed`**. Ships
-  offline; increases edvabe binary size by ~10-20 MB.
-- **(D) Publish `edvabe/base:latest` to a public registry** (GHCR / Docker
-  Hub). Simplest UX; requires us to maintain and push.
+**Why.** Investigation on 2026-04-15 showed:
 
-**Current leaning.** Primary path is (A), fallback is (C) for offline
-users. (D) is added in Phase 3+ once the image format stabilizes. (B) is
-out — Go toolchain on host is too heavy a dependency.
+- (A) is impossible — `e2b-dev/infra` GitHub releases carry zero assets.
+  envd is uploaded to E2B's private GCP/AWS buckets (see
+  `packages/envd/Makefile` upload target), not to GitHub.
+- (B) is out per the original Q2 write-up — Go toolchain on the host is
+  too heavy a dependency for a `go install` UX.
+- (C) would still need a source for the binary, inheriting (A)'s problem.
+- (D) as originally framed meant edvabe publishing its own image. But
+  E2B already publishes `e2bdev/base` multi-arch (amd64 + arm64), ~470 MB
+  per arch, last-pushed dates track their releases. We can consume it
+  directly.
 
-**Pin version.** Use a specific upstream version (e.g. envd v0.5.7) and
-upgrade explicitly. Never track `latest`.
+Task 4 now pins `docker.io/e2bdev/base@sha256:<digest>` in code; task 5
+tags that image as `edvabe/base:latest`. No `fetch-envd` subcommand, no
+host-side binary cache.
+
+**Pin version.** Bump by HEAD-requesting `e2bdev/base:latest` and
+updating `BaseImageDigest`. Never track `latest` at runtime. The
+`envdVersion` reported in Sandbox responses (CLAUDE.md golden rule #3)
+remains `"0.5.7"` regardless — it's informational for the SDK, not tied
+to the image pin.
 
 ## Q3: Does upstream envd actually run cleanly in a plain Docker container?
 
@@ -175,9 +184,12 @@ mount is purely a convenience for the user to see files on their host.
 upgrade flow?
 
 **Current leaning.**
-- `edvabe fetch-envd --version=<v>` downloads a new version.
-- `edvabe build-image --force` rebuilds `edvabe/base:latest`.
+- edvabe maintainer bumps `upstream.BaseImageDigest` to a new pin (see
+  [Q2](#q2-how-to-distribute-the-envd-binary--resolved)) and cuts a
+  release.
+- End users run `edvabe pull-base` + `edvabe build-image --force` to
+  pick up the new upstream image.
 - Running sandboxes continue on the old image; new sandboxes use the new
   one.
 
-Document the command in `edvabe doctor --help`.
+Document the upgrade flow in `edvabe doctor --help`.
