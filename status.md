@@ -33,13 +33,18 @@ Legend: `[ ]` not started · `[~]` in progress · `[x]` done
       shelling out to `docker pull`. `pull-base` subcommand replaces the
       old `fetch-envd` stub. Scope changed mid-task — see session log
       and decisions section.
-- [~] **Task 5 — Build edvabe/base (multi-stage envd layer)**
-      *Reopened 2026-04-15 after task 6 kickoff revealed that
-      `e2bdev/base` does not contain envd.* Commit `16142e7` (plain
-      `docker tag`) is insufficient. Re-scoped to the B1 plan:
-      multi-stage `docker build` that compiles envd from source at a
-      pinned `e2b-dev/infra` commit and layers it onto the pinned
-      `e2bdev/base` image. See session log below.
+- [x] **Task 5 — Build edvabe/base (multi-stage envd layer)**
+      (83a973b, 2026-04-15, reworked from 16142e7)
+      `assets/Dockerfile.base` + `assets/assets.go` (go:embed) + rewritten
+      `upstream.EnsureBaseImage` that pipes the Dockerfile to
+      `docker build -` with `--build-arg ENVD_SHA`. Builder stage
+      `golang:1.25.4-bookworm` clones infra, deletes `go.work` to escape
+      the workspace Go pin, builds `packages/envd`. Final stage starts
+      from the pinned `e2bdev/base` and copies envd to `/usr/bin/envd`
+      with `CMD ["-isnotfc"]`. Verified: `docker run edvabe/base:latest`
+      + `curl /health` → 204. envd logs three cgroup-creation warnings,
+      falls back to no-op cgroup manager (Q3 finding — full write-up in
+      task 6).
 - [ ] **Task 6 — envd-in-Docker smoke test** (gates open question Q3)
 - [ ] **Task 7 — Docker runtime implementation**
 - [ ] **Task 8 — Sandbox manager**
@@ -61,6 +66,33 @@ Phase 1 is complete.
 
 Newest first. Keep entries tight. Reference commit hashes so future
 agents can `git show` the actual changes.
+
+### 2026-04-15 — complete task 5 rework (multi-stage envd build)
+
+Agent: Claude Opus 4.6 (1M context)
+
+- Pinned `EnvdSourceSHA = "d9063bd8cc70b5ce653e9f7cd4ede0f1e3de0fef"`
+  (HEAD of `e2b-dev/infra` tag 2026.15, resolved via
+  `gh api repos/e2b-dev/infra/git/refs/tags/2026.15`).
+- Hit two issues iterating:
+  - `golang:1.24-bookworm` builder couldn't satisfy `go.work`'s
+    `go 1.25.4` requirement with `GOTOOLCHAIN=local`. Bumped to
+    `golang:1.25.4-bookworm` and verified it's a real Docker Hub tag.
+  - envd references sibling `packages/shared` via a `replace` directive
+    in its own `go.mod` — fine, but the root `go.work` adds workspace
+    constraints we don't need. `rm -f go.work go.work.sum` before cd'ing
+    into `packages/envd` sidesteps it.
+- First successful build took 42s wall (golang image pull + git clone +
+  go mod download + go build). Cached re-runs finish in <2s.
+- Smoke check: `docker run edvabe/base:latest` → `curl /health` → 204.
+  envd emits three "failed to create cgroup*" warnings and falls back
+  to a no-op cgroup manager — benign, Q3 write-up belongs to task 6.
+- Fixed misleading "tagged ..." message in `build-image` subcommand;
+  now prints `built <tag> (envd @ <sha>)`. `--force` documented as a
+  no-op (Docker's build cache handles re-runs).
+- Commits this session pivot: `6a8e3df` (fix task 5 description),
+  `83a973b` (implementation).
+- Task 6 stays `[ ]` — will be reclaimed next.
 
 ### 2026-04-15 — reopen task 5, defer task 6
 
