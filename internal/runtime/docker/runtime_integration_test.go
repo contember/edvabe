@@ -1,0 +1,139 @@
+//go:build integration
+
+// Integration tests for the Docker runtime. Run with:
+//
+//	go test -tags=integration ./internal/runtime/docker/...
+//
+// Requires a reachable Docker daemon and `edvabe/base:latest` on the
+// host (build with `go run ./cmd/edvabe build-image`). The base image
+// is used because it has a long-running default CMD (envd); most
+// public test images like alpine:latest exit immediately, which
+// releases the container's bridge IP and breaks the inspect step.
+
+package docker
+
+import (
+	"context"
+	"net"
+	"strconv"
+	"testing"
+	"time"
+
+	"github.com/moby/moby/client"
+
+	"github.com/contember/edvabe/internal/runtime"
+)
+
+const testImage = "edvabe/base:latest"
+
+func newTestRuntime(t *testing.T) *Runtime {
+	t.Helper()
+	r, err := New()
+	if err != nil {
+		t.Skipf("Docker not available: %v", err)
+	}
+	t.Cleanup(func() { _ = r.Close() })
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if _, err := r.cli.Ping(ctx, client.PingOptions{}); err != nil {
+		t.Skipf("Docker ping failed: %v", err)
+	}
+
+	if _, err := r.cli.ImageInspect(ctx, testImage); err != nil {
+		t.Skipf("%s not present — run `go run ./cmd/edvabe build-image` first", testImage)
+	}
+	return r
+}
+
+func uniqueSandboxID(t *testing.T) string {
+	return "isb_test_" + strconv.FormatInt(time.Now().UnixNano(), 36) + "_" + t.Name()
+}
+
+func TestDockerRuntimeCreateInspectDestroy(t *testing.T) {
+	r := newTestRuntime(t)
+	ctx := context.Background()
+
+	sid := uniqueSandboxID(t)
+	t.Cleanup(func() { _ = r.Destroy(ctx, sid) })
+
+	h, err := r.Create(ctx, runtime.CreateRequest{
+		SandboxID: sid,
+		Image:     testImage,
+		EnvVars:   map[string]string{"EDVABE_TEST": "1"},
+		Metadata:  map[string]string{"owner": "runtime-test"},
+	})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	if h.ContainerID == "" {
+		t.Error("handle.ContainerID is empty")
+	}
+	if h.AgentPort != defaultAgentPort {
+		t.Errorf("handle.AgentPort = %d, want %d", h.AgentPort, defaultAgentPort)
+	}
+	if ip := net.ParseIP(h.AgentHost); ip == nil {
+		t.Errorf("handle.AgentHost %q is not a valid IP", h.AgentHost)
+	}
+	if h.CreatedAt.IsZero() {
+		t.Error("handle.CreatedAt is zero")
+	}
+
+	host, port, err := r.AgentEndpoint(sid)
+	if err != nil {
+		t.Fatalf("AgentEndpoint: %v", err)
+	}
+	if host != h.AgentHost || port != h.AgentPort {
+		t.Errorf("AgentEndpoint = %s:%d, want %s:%d", host, port, h.AgentHost, h.AgentPort)
+	}
+
+	inspect, err := r.cli.ContainerInspect(ctx, sid, client.ContainerInspectOptions{})
+	if err != nil {
+		t.Fatalf("ContainerInspect: %v", err)
+	}
+	if !inspect.Container.State.Running {
+		t.Errorf("container state = %q, want running", inspect.Container.State.Status)
+	}
+	if got := inspect.Container.Config.Labels[LabelSandboxID]; got != sid {
+		t.Errorf("label %s = %q, want %q", LabelSandboxID, got, sid)
+	}
+	if got := inspect.Container.Config.Labels[LabelMetaPrefix+"owner"]; got != "runtime-test" {
+		t.Errorf("metadata label missing: got %q", got)
+	}
+
+	stats, err := r.Stats(ctx, sid)
+	if err != nil {
+		t.Fatalf("Stats: %v", err)
+	}
+	if stats == nil {
+		t.Fatal("Stats returned nil")
+	}
+
+	if err := r.Destroy(ctx, sid); err != nil {
+		t.Fatalf("Destroy: %v", err)
+	}
+
+	if _, err := r.cli.ContainerInspect(ctx, sid, client.ContainerInspectOptions{}); err == nil {
+		t.Error("ContainerInspect should fail after Destroy")
+	}
+	if err := r.Destroy(ctx, sid); err == nil {
+		t.Error("second Destroy should fail")
+	}
+}
+
+func TestDockerRuntimeCreateRequiresID(t *testing.T) {
+	r := newTestRuntime(t)
+	ctx := context.Background()
+	if _, err := r.Create(ctx, runtime.CreateRequest{Image: testImage}); err == nil {
+		t.Error("Create with empty SandboxID should fail")
+	}
+}
+
+func TestDockerRuntimeCreateRequiresImage(t *testing.T) {
+	r := newTestRuntime(t)
+	ctx := context.Background()
+	if _, err := r.Create(ctx, runtime.CreateRequest{SandboxID: "isb_no_image"}); err == nil {
+		t.Error("Create with empty Image should fail")
+	}
+}
