@@ -27,7 +27,12 @@ Legend: `[ ]` not started · `[~]` in progress · `[x]` done
       `internal/agent/agent.go` — `AgentProvider` interface + `InitConfig`
       + `VolumeMount`. Imports `internal/runtime` for `EnsureImage`'s
       Runtime arg. No impls yet; upstream impl lands in task 4/5.
-- [~] **Task 4 — Upstream envd: binary fetcher**
+- [x] **Task 4 — Pin e2bdev/base image** (00e48df, 2026-04-15)
+      `internal/agent/upstream/image.go` with `DefaultEnvdVersion`,
+      `BaseImageRepo`, `BaseImageDigest` consts + `PullBase(ctx)` helper
+      shelling out to `docker pull`. `pull-base` subcommand replaces the
+      old `fetch-envd` stub. Scope changed mid-task — see session log
+      and decisions section.
 - [ ] **Task 5 — Upstream envd: base image builder**
 - [ ] **Task 6 — envd-in-Docker smoke test** (gates open question Q3)
 - [ ] **Task 7 — Docker runtime implementation**
@@ -51,9 +56,42 @@ Phase 1 is complete.
 Newest first. Keep entries tight. Reference commit hashes so future
 agents can `git show` the actual changes.
 
-### 2026-04-15 — claim task 4 (envd binary fetcher)
+### 2026-04-15 — complete task 4 (pin e2bdev/base image)
 
 Agent: Claude Opus 4.6 (1M context)
+
+Task scope changed mid-flight. Original plan was to fetch a prebuilt
+envd binary from `e2b-dev/infra` GitHub releases, sha256-verify, cache
+in `~/.cache/edvabe/envd/<version>/`. Investigation showed:
+
+- `e2b-dev/infra` has 37 releases, all with zero assets. envd is
+  uploaded to E2B's private GCP/AWS buckets (see `packages/envd/Makefile`
+  `upload` target).
+- `e2bdev/base` is published on Docker Hub multi-arch (amd64 + arm64),
+  ~470 MB compressed, last pushed 2026-02-25. It already contains envd
+  baked in.
+
+Escalated to user, agreed to switch to Q2 option (D) — consume
+`e2bdev/base` directly. This resolves **Q2** and makes task 5 a thin
+retag.
+
+- Rewrote tasks 4 and 5 in `docs/08-phase1-checklist.md`; marked Q2
+  resolved in `docs/07-open-questions.md`; updated Q14 upgrade flow;
+  renamed `fetch-envd` → `pull-base` across CLAUDE.md, docs, main.go,
+  and the task 1 historical note. Commit: `df593cd`.
+- Implementation: `internal/agent/upstream/image.go` with pinned
+  multi-arch index digest
+  `sha256:11349f027b11281645fd8b7874e94053681a0d374508067c16bf15b00e1161b2`,
+  verified via registry HEAD on 2026-04-15. `PullBase(ctx)` shells out
+  to `docker pull` (os/exec, not the Docker SDK — SDK lands in task 7).
+  `cmd/edvabe/main.go` wires `pull-base`. Commit: `00e48df`.
+- Acceptance: `go vet ./...` + `go build ./...` clean;
+  `go run ./cmd/edvabe pull-base` prints the digest-pinned ref;
+  `docker image inspect <ref>` returns a non-empty local ID
+  (`sha256:1565260ff3fe...`, amd64, 1.28 GB unpacked).
+- Commits this session: `62a1028` (claim), `df593cd` (fix task 4/5
+  descriptions), `00e48df` (implementation).
+- No new open questions. Scope change recorded in Decisions section.
 
 ### 2026-04-15 — complete task 3 (AgentProvider interface)
 
@@ -139,7 +177,12 @@ Entries added here are decisions taken while writing code that aren't
 already captured in `docs/`. Format: `- **<date>** — <decision> (task N).
 Why: <reason>.`
 
-*(none yet)*
+- **2026-04-15** — Consume `e2bdev/base` from Docker Hub unchanged
+  instead of fetching/building envd. Pin by OCI image index digest
+  (multi-arch), use `os/exec docker pull` until task 7 adds the Docker
+  SDK (task 4). Why: E2B doesn't publish envd binaries to GitHub
+  releases, host-side Go toolchain is ruled out (Q2), and `e2bdev/base`
+  is already maintained and multi-arch. See Q2 resolution for context.
 
 ## Session hygiene
 
