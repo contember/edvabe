@@ -45,7 +45,7 @@ Legend: `[ ]` not started · `[~]` in progress · `[x]` done
       all the fancy builder methods (aptInstall, pipInstall, makeDir,
       rename, remove, gitClone, etc.) compile client-side to plain RUN
       before the SDK sends them, so the server only sees five types.
-- [x] **Task 4 — Template CRUD HTTP endpoints** (pending, 2026-04-15)
+- [x] **Task 4 — Template CRUD HTTP endpoints** (9cedde3, 2026-04-15)
       `internal/api/control/templates.go` + updated `router.go`.
       `NewRouter(RouterOptions{...})` replaces the positional
       constructor; Templates field is optional so the router still
