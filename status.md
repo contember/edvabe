@@ -73,7 +73,7 @@ Legend: `[ ]` not started · `[~]` in progress · `[x]` done
       and a random-secret 10-minute signer. 10 new handler tests cover
       present/absent, token expiry, hash mismatch, and API-key bypass.
 - [ ] **Task 6 — envd-source scratch image**
-- [x] **Task 7 — BuildManager state machine** (pending, 2026-04-15)
+- [x] **Task 7 — BuildManager state machine** (bfdf7e3, 2026-04-15)
       `internal/template/builder/manager.go` + `ringbuf.go`. Async
       `Manager` with one goroutine per build, state machine
       `waiting → building → ready|error`, injectable `Executor`
