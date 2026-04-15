@@ -52,7 +52,15 @@ Legend: `[ ]` not started · `[~]` in progress · `[x]` done
       special caps or bind mounts needed. Also fixed a latent bug:
       `Dockerfile.base` now creates the `user` account E2B SDKs
       default to (e2bdev/base ships only root).
-- [~] **Task 7 — Docker runtime implementation**
+- [x] **Task 7 — Docker runtime implementation** (4c29a57, 2026-04-15)
+      `internal/runtime/docker/` package with Create/Destroy/Stats/
+      BuildImage/AgentEndpoint against the local Docker socket via
+      `github.com/moby/moby/client` v0.4.0. Socket discovery honors
+      `DOCKER_HOST` then probes Docker Desktop, Colima, OrbStack,
+      Podman. Sandboxes use the sandbox ID verbatim as the container
+      name plus an `edvabe.sandbox.id` label. Pause/Unpause/Commit
+      return phase-4 stubs. Integration tests behind
+      `-tags=integration`.
 - [ ] **Task 8 — Sandbox manager**
 - [ ] **Task 9 — Dispatch + reverse proxy**
 - [ ] **Task 10 — Control plane: health + create + get**
@@ -72,6 +80,72 @@ Phase 1 is complete.
 
 Newest first. Keep entries tight. Reference commit hashes so future
 agents can `git show` the actual changes.
+
+### 2026-04-15 — complete task 7 (Docker runtime implementation)
+
+Agent: Claude Opus 4.6 (1M context)
+
+- Hit an SDK-split surprise: `github.com/docker/docker/client` v0.4.0
+  is a tombstone redirecting to `github.com/moby/moby/client`. The
+  classic monolithic `github.com/docker/docker v28.5.2+incompatible`
+  conflicts with the new split `github.com/moby/moby/api v1.54.1`.
+  Switched all imports to `github.com/moby/moby/{client,api/...}` and
+  `github.com/moby/go-archive` for the build context tar. Clean
+  `go mod tidy` with those three direct deps.
+- The new client API is a significant rewrite vs the pre-v28 SDK:
+  - `ContainerCreate(ctx, client.ContainerCreateOptions{Config, HostConfig, Name})`
+    returns `ContainerCreateResult{ID}`, not separate args.
+  - `ContainerStart` / `ContainerRemove` / `ContainerInspect` all
+    return `(Result, error)` with per-method option structs in the
+    client package (not api/types/container).
+  - `ContainerInspect` returns `client.ContainerInspectResult` which
+    wraps `container.InspectResponse`.
+  - `ContainerStats(ctx, id, client.ContainerStatsOptions)` replaces
+    the old `ContainerStatsOneShot`. `IncludePreviousSample: true`
+    gets the prior sample for CPU delta.
+  - `ImageBuild` takes `client.ImageBuildOptions` (not build.ImageBuildOptions).
+  - `network.EndpointSettings.IPAddress` is `netip.Addr`, not string —
+    use `.IsValid()` + `.String()`.
+  - `Ping(ctx, client.PingOptions{})` now takes options.
+  - `ImageInspect(ctx, ref)` is a variadic-options call, not a
+    struct-options call like most other methods.
+- Files:
+  - `internal/runtime/docker/runtime.go` — `Runtime` struct, `New`,
+    `DiscoverHost` (DOCKER_HOST → /var/run/docker.sock → Colima →
+    OrbStack → Podman), `Name`, `Host`, `Close`, endpoint cache.
+  - `internal/runtime/docker/create.go` — Create with label stamping,
+    env/metadata/bind-mount passthrough, best-effort cleanup on any
+    mid-create error.
+  - `internal/runtime/docker/destroy.go` — Destroy + Pause/Unpause
+    phase-4 stubs.
+  - `internal/runtime/docker/stats.go` — Stats via one-shot request
+    with pre-sample for CPU%; local `statsDoc` struct to avoid the
+    SDK's internal stats-type churn.
+  - `internal/runtime/docker/build.go` — BuildImage via moby/go-archive
+    TarWithOptions + ImageBuild, drains the build output. Commit
+    phase-4 stub.
+  - `internal/runtime/docker/endpoint.go` — AgentEndpoint with
+    cache-first lookup, falls back to live ContainerInspect so
+    restarted edvabe can still proxy. `extractBridgeIP` prefers the
+    default `bridge` network then any attached network.
+  - `internal/runtime/docker/runtime_test.go` — unit tests for
+    DOCKER_HOST path and phase-4 stub returns (no Docker needed).
+  - `internal/runtime/docker/runtime_integration_test.go` — gated
+    `//go:build integration`, uses `edvabe/base:latest` because
+    alpine:latest exits immediately and loses its bridge IP before
+    inspect. Full Create → AgentEndpoint → Stats → Destroy cycle,
+    label assertions, required-field rejections.
+- Acceptance:
+  - `go vet ./...` clean, `go build ./...` clean.
+  - `go test ./...` passes (unit suite, no Docker required).
+  - `go test -tags=integration ./internal/runtime/docker/...` passes
+    against the host daemon: TestDockerRuntimeCreateInspectDestroy +
+    CreateRequiresID + CreateRequiresImage, 1.3s total.
+- Scope held: Pause/Unpause/Commit are phase-4 stubs that return a
+  "not implemented" error. `upstream.PullBase` was left shelling out
+  to `docker pull` — migrating it is not in task 7 scope.
+- Commits: `b9fca63` (claim), `4c29a57` (implementation).
+- No new open questions.
 
 ### 2026-04-15 — claim task 7 (Docker runtime implementation)
 
