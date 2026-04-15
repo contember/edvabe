@@ -98,7 +98,7 @@ Legend: `[ ]` not started · `[~]` in progress · `[x]` done
       task 9 lands the real docker pipe. 11 handler tests with a
       fake build manager.
 - [ ] **Task 9 — Real build executor**
-- [x] **Task 10 — Sandbox create integration** (pending, 2026-04-15)
+- [x] **Task 10 — Sandbox create integration** (a8d617a, 2026-04-15)
       `internal/sandbox/manager.go` now takes a `TemplateResolver`
       via `Options.Resolver`; at create time the manager consults it
       and falls back to `DefaultImage` + empty start/ready commands
