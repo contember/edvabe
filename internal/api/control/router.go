@@ -36,6 +36,10 @@ type RouterOptions struct {
 	// Templates is the Phase 3 template store (internal/template.Store
 	// or a fake in tests). Pass nil to serve only the Phase 1 routes.
 	Templates templateStore
+	// Builds is the async template BuildManager. Required only for
+	// the build start/status/logs endpoints; CRUD-only deployments
+	// can leave it nil.
+	Builds buildManager
 	// FileCache and FileSigner power the SDK's Template.build() file
 	// upload path. Both must be set together; if either is nil, the
 	// file endpoints are skipped.
@@ -71,6 +75,7 @@ func NewRouter(opts RouterOptions) http.Handler {
 	}))
 
 	filesEnabled := opts.FileCache != nil && opts.FileSigner != nil
+	buildsEnabled := opts.Builds != nil
 	templateHandler := api.RequireAPIKey(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if opts.Templates == nil {
 			http.NotFound(w, r)
@@ -85,6 +90,12 @@ func NewRouter(opts RouterOptions) http.Handler {
 			resolveAlias(opts.Templates, w, r)
 		case r.Method == http.MethodGet && filesEnabled && isTemplateFilesPath(r.URL.Path):
 			getFileUploadLink(opts.Templates, opts.FileCache, opts.FileSigner, opts.PublicBase, w, r)
+		case r.Method == http.MethodPost && buildsEnabled && isV2TemplateBuildPath(r.URL.Path):
+			startBuild(opts.Templates, opts.Builds, w, r)
+		case r.Method == http.MethodGet && buildsEnabled && isTemplateBuildStatusPath(r.URL.Path):
+			getBuildStatus(opts.Builds, w, r)
+		case r.Method == http.MethodGet && buildsEnabled && isTemplateBuildLogsPath(r.URL.Path):
+			getBuildLogs(opts.Builds, w, r)
 		case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/templates/"):
 			getTemplate(opts.Templates, w, r)
 		case r.Method == http.MethodDelete && strings.HasPrefix(r.URL.Path, "/templates/"):
@@ -128,4 +139,36 @@ func isTemplateFilesPath(path string) bool {
 	rest := strings.TrimPrefix(path, "/templates/")
 	parts := strings.SplitN(rest, "/", 3)
 	return len(parts) == 3 && parts[1] == "files" && parts[0] != "" && parts[2] != ""
+}
+
+// isV2TemplateBuildPath reports whether path looks like
+// /v2/templates/{id}/builds/{bid} (no trailing segment).
+func isV2TemplateBuildPath(path string) bool {
+	if !strings.HasPrefix(path, "/v2/templates/") {
+		return false
+	}
+	rest := strings.TrimPrefix(path, "/v2/templates/")
+	parts := strings.SplitN(rest, "/", 4)
+	return len(parts) == 3 && parts[1] == "builds" && parts[0] != "" && parts[2] != ""
+}
+
+// isTemplateBuildStatusPath reports whether path is
+// /templates/{id}/builds/{bid}/status.
+func isTemplateBuildStatusPath(path string) bool {
+	return matchBuildSubpath(path, "status")
+}
+
+// isTemplateBuildLogsPath reports whether path is
+// /templates/{id}/builds/{bid}/logs.
+func isTemplateBuildLogsPath(path string) bool {
+	return matchBuildSubpath(path, "logs")
+}
+
+func matchBuildSubpath(path, suffix string) bool {
+	if !strings.HasPrefix(path, "/templates/") {
+		return false
+	}
+	rest := strings.TrimPrefix(path, "/templates/")
+	parts := strings.Split(rest, "/")
+	return len(parts) == 4 && parts[1] == "builds" && parts[3] == suffix && parts[0] != "" && parts[2] != ""
 }

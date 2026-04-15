@@ -83,7 +83,20 @@ Legend: `[ ]` not started · `[~]` in progress · `[x]` done
       still-held entry, it gets a catch-up slice instead of an error.
       Per-build `Cancel` and `Wait` for shutdown paths. 15 unit tests
       (ring buffer + manager), `-race` clean.
-- [ ] **Task 8 — Build start + status + logs endpoints**
+- [x] **Task 8 — Build start + status + logs endpoints** (pending, 2026-04-15)
+      `internal/api/control/builds.go` + updated router.
+      `POST /v2/templates/{id}/builds/{bid}` decodes
+      `TemplateBuildStartV2`, resolves any `fromTemplate` parent
+      (rejects if the parent has no ready build), persists
+      `startCmd`/`readyCmd`/`imageTag` onto the template record, and
+      hands off to the `BuildManager`. Status lives at
+      `GET /templates/{id}/builds/{bid}/status` with `logsOffset=`
+      pagination matching the SDK's BuildStatusResponse shape
+      (`{buildID, templateID, status, logs[], logEntries[], reason?}`).
+      Also exposes the legacy `GET .../builds/{bid}/logs` path with
+      cursor+limit pagination. Router has a placeholder executor until
+      task 9 lands the real docker pipe. 11 handler tests with a
+      fake build manager.
 - [ ] **Task 9 — Real build executor**
 - [ ] **Task 10 — Sandbox create integration**
 - [ ] **Task 11 — readyCmd probe loop**

@@ -19,6 +19,7 @@ import (
 	"github.com/contember/edvabe/internal/runtime/docker"
 	"github.com/contember/edvabe/internal/sandbox"
 	"github.com/contember/edvabe/internal/template"
+	"github.com/contember/edvabe/internal/template/builder"
 	"github.com/contember/edvabe/internal/template/filecache"
 )
 
@@ -122,11 +123,23 @@ func serveCmd(args []string) {
 		os.Exit(1)
 	}
 
+	// Phase 3 task 9 will replace this stub with a real Docker-backed
+	// executor. For now the BuildManager accepts builds and surfaces
+	// them through the status/logs endpoints, but every run fails.
+	buildMgr, err := builder.NewManager(builder.ManagerOptions{
+		Executor: placeholderExecutor{},
+	})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "serve: init build manager: %v\n", err)
+		os.Exit(1)
+	}
+
 	controlHandler := control.NewRouter(control.RouterOptions{
 		Manager:    mgr,
 		Runtime:    rt,
 		Provider:   ap,
 		Templates:  templateStore,
+		Builds:     buildMgr,
 		FileCache:  fileCache,
 		FileSigner: fileSigner,
 		PublicBase: fmt.Sprintf("http://localhost:%d", *port),
@@ -211,4 +224,19 @@ func fileCacheDir() string {
 		return "edvabe-template-files"
 	}
 	return filepath.Join(home, ".cache", "edvabe", "template-files")
+}
+
+// placeholderExecutor is a stand-in until Phase 3 task 9 lands the
+// real Docker-backed executor. Builds enqueued against it transition
+// through waiting → building → error; the HTTP surface is otherwise
+// fully functional so SDK clients at least get a parseable failure
+// instead of a hang.
+type placeholderExecutor struct{}
+
+func (placeholderExecutor) Run(ctx context.Context, spec builder.ExecutorSpec, sink builder.LogSink) error {
+	sink.Append(builder.LogEntry{
+		Level:   "error",
+		Message: "edvabe: real docker build executor not yet wired (phase 3 task 9)",
+	})
+	return fmt.Errorf("build executor not implemented yet")
 }
