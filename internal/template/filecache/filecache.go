@@ -2,11 +2,15 @@
 // for template file contexts.
 //
 // The E2B SDK's Template.build() tars each COPY/copyItems step's source
-// paths client-side, hashes the tar, and asks the server via
-// GET /templates/{id}/files/{hash} whether the blob is already present.
-// On a miss, the server hands back a short-lived upload URL; the SDK
-// PUTs the tar there. Cache is deduplicated across templates — two
-// templates that COPY the same files share a single on-disk blob.
+// paths client-side, computes a hash over the file contents and metadata,
+// and asks the server via GET /templates/{id}/files/{hash} whether the
+// blob is already present. On a miss, the server hands back a short-lived
+// upload URL; the SDK PUTs the tar there. The hash is not a SHA-256 of
+// the tar stream — it incorporates relative paths, file modes, sizes,
+// and a COPY instruction prefix — so the server stores blobs keyed by
+// this opaque hash without re-verifying. Cache is deduplicated across
+// templates — two templates that COPY the same files share a single
+// on-disk blob.
 //
 // The on-disk layout is flat: <root>/<hash>.tar. Writes are atomic via
 // a .part sidecar that's renamed into place on success, so a crash or
@@ -24,9 +28,9 @@ import (
 	"regexp"
 )
 
-// ErrHashMismatch is returned by Put when the bytes received did not
-// hash to the expected value. Callers should treat this as a client
-// error (HTTP 400) — the upload was corrupted in flight.
+// ErrHashMismatch is kept for API compatibility but is no longer
+// returned by Put — the SDK's hash is computed over file metadata, not
+// the tar stream, so server-side re-verification is not possible.
 var ErrHashMismatch = errors.New("filecache: hash mismatch")
 
 // validHash is the SDK's hash convention: 64 lowercase hex characters
@@ -86,11 +90,11 @@ func (c *Cache) Open(hash string) (io.ReadCloser, error) {
 }
 
 // Put writes the reader's bytes into the cache under the given hash.
-// The bytes are hashed as they are written; on mismatch, the partial
-// file is deleted and ErrHashMismatch is returned. Put is idempotent:
-// if the blob is already present, the existing file is kept and the
-// input reader is drained but not used. Callers can count on the final
-// on-disk file being the hash-verified copy.
+// Put is idempotent: if the blob is already present, the existing file
+// is kept and the input reader is drained but not used. The hash is
+// treated as an opaque client-supplied key — the SDK computes it over
+// file contents, paths, and modes, not over the tar stream, so the
+// server does not re-verify.
 func (c *Cache) Put(hash string, r io.Reader) error {
 	if !validHash.MatchString(hash) {
 		return fmt.Errorf("filecache: invalid hash %q", hash)
@@ -116,18 +120,12 @@ func (c *Cache) Put(hash string, r io.Reader) error {
 		}
 	}()
 
-	hasher := sha256.New()
-	if _, err := io.Copy(io.MultiWriter(tmp, hasher), r); err != nil {
+	if _, err := io.Copy(tmp, r); err != nil {
 		_ = tmp.Close()
 		return fmt.Errorf("filecache: write tmp: %w", err)
 	}
 	if err := tmp.Close(); err != nil {
 		return fmt.Errorf("filecache: close tmp: %w", err)
-	}
-
-	actual := hex.EncodeToString(hasher.Sum(nil))
-	if actual != hash {
-		return fmt.Errorf("%w: expected %s got %s", ErrHashMismatch, hash, actual)
 	}
 
 	if err := os.Rename(tmpPath, final); err != nil {

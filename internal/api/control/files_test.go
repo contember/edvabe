@@ -151,14 +151,17 @@ func TestUploadRejectsInvalidToken(t *testing.T) {
 	}
 }
 
-func TestUploadRejectsMismatchedHash(t *testing.T) {
+func TestUploadAcceptsOpaqueHash(t *testing.T) {
+	// The hash is a client-supplied content address computed over file
+	// metadata, not the tar stream, so the server stores without
+	// re-verifying.
 	h, _, _, signer := newFilesTestRouter(t)
 	advertised := filecache.HashBytes([]byte("advertised"))
 	token := signer.Sign(advertised)
 	req := httptest.NewRequest(http.MethodPut, "/_upload/"+advertised+"?token="+token, bytes.NewReader([]byte("actual")))
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
-	if rec.Code != http.StatusBadRequest {
+	if rec.Code != http.StatusNoContent {
 		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
 	}
 }

@@ -73,22 +73,23 @@ func TestCachePutIdempotent(t *testing.T) {
 	}
 }
 
-func TestCachePutHashMismatch(t *testing.T) {
+func TestCachePutOpaqueHash(t *testing.T) {
+	// The hash is an opaque client-supplied key. Put stores the bytes
+	// under that key without re-verifying the content.
 	c := newCache(t)
-	wrongHash := HashBytes([]byte("advertised"))
-	err := c.Put(wrongHash, strings.NewReader("actual different content"))
-	if !errors.Is(err, ErrHashMismatch) {
-		t.Fatalf("expected ErrHashMismatch, got %v", err)
+	hash := HashBytes([]byte("advertised"))
+	content := "actual different content"
+	if err := c.Put(hash, strings.NewReader(content)); err != nil {
+		t.Fatalf("Put with opaque hash: %v", err)
 	}
-	if present, _ := c.Has(wrongHash); present {
-		t.Fatal("mismatched upload should not have been persisted")
+	if present, _ := c.Has(hash); !present {
+		t.Fatal("blob should be present")
 	}
-	// No stray .part files left behind.
-	entries, _ := os.ReadDir(c.Root())
-	for _, e := range entries {
-		if strings.HasSuffix(e.Name(), ".part") {
-			t.Fatalf("stray .part file left: %s", e.Name())
-		}
+	r, _ := c.Open(hash)
+	defer r.Close()
+	got, _ := io.ReadAll(r)
+	if string(got) != content {
+		t.Fatalf("content mismatch: %q", got)
 	}
 }
 
