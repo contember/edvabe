@@ -6,13 +6,12 @@ update protocol.
 
 ## Current phase
 
-**Phase 3 — "Templates and pause"**
-Full task definitions: [docs/09-phase3-checklist.md](docs/09-phase3-checklist.md)
+**Phase 2 — "Code interpreter"** — complete (2026-04-16)
+Previous: Phase 3 ("Templates and pause") — complete (2026-04-16)
 
-Phase ordering rationale: webmaster is the driving consumer and needs
-programmatic `Template.build()` + pause/resume but does not use the
-code interpreter overlay — see `docs/06-phases.md:11-22`. Phase 2
-(code interpreter) is deferred until a consumer actually needs it.
+Phase ordering note: Phase 3 shipped before Phase 2 because the
+webmaster consumer needed templates + pause first. Phase 2 adds the
+code-interpreter overlay (`@e2b/code-interpreter` SDK support).
 
 ## Phase 3 tasks
 
@@ -355,16 +354,72 @@ Legend: `[ ]` not started · `[~]` in progress · `[x]` done
 - [~] **Task 15 — Tag v0.1.0** (local tag created on 5ded213;
       awaiting user confirmation before `git push origin v0.1.0`)
 
-## Phase 2+ (not yet active)
+## Phase 2 tasks
 
-See [docs/06-phases.md](docs/06-phases.md) for Phases 2–5 scope. No task
-breakdown yet — create a `docs/09-phase2-checklist.md` (or similar) when
-Phase 1 is complete.
+Legend: `[ ]` not started · `[~]` in progress · `[x]` done
+
+- [x] **Task 1 — Port-aware reverse proxy** (f48e414, 2026-04-16)
+      Proxy reads `E2b-Sandbox-Port` header and overrides the target
+      port when it differs from the default envd port (49983). This is
+      the routing glue that makes port 49999 (code interpreter overlay)
+      reachable without new dispatch logic. 2 new tests.
+- [x] **Task 2 — Dockerfile for code-interpreter image** (cfc3b9b, 2026-04-16)
+      `assets/Dockerfile.code-interpreter` — multi-stage build: reuses
+      the envd-builder stage, clones `e2b-dev/code-interpreter` at a
+      pinned SHA, installs Jupyter + Python/JS kernels + FastAPI server +
+      the full data-science stack. Final image includes envd + edvabe-init.
+      `//go:embed` in `assets/assets.go`.
+- [x] **Task 3 — EnsureCodeInterpreterImage function** (2887818, 2026-04-16)
+      `internal/agent/upstream/code_interpreter.go` — follows the
+      `EnsureEnvdSource` tar-context pattern. Packs Dockerfile +
+      edvabe-init.sh and pipes to `docker build`. 2 unit tests.
+- [x] **Task 4 — Seed built-in template + wire in main.go** (0a7dadc, 2026-04-16)
+      `Store.SeedBuiltIn` creates or updates a built-in template by
+      alias (idempotent across restarts/upgrades). `serveCmd` seeds
+      `code-interpreter-v1` → `edvabe/code-interpreter:latest` with
+      startCmd/readyCmd from the upstream template. 3 new store tests.
+- [x] **Task 5 — Extend build-image CLI** (700e919, 2026-04-16)
+      `build-image --template=base|code-interpreter|all` controls which
+      images are built. Default remains base. Doctor gains an
+      informational (non-failing) check for the code-interpreter image.
+- [x] **Task 6 — E2E tests** (5225b97, 2026-04-16)
+      Python (6 tests) and TypeScript (5 tests) exercising
+      `e2b_code_interpreter.Sandbox` / `@e2b/code-interpreter.Sandbox`:
+      simple eval, stdout, multiline, pandas, matplotlib, error handling.
+      New Makefile targets: `test-e2e-code-interpreter-python`,
+      `test-e2e-code-interpreter-ts`.
+
+## Phase 4+ (not yet active)
+
+See [docs/06-phases.md](docs/06-phases.md) for Phases 4–5 scope.
 
 ## Session log
 
 Newest first. Keep entries tight. Reference commit hashes so future
 agents can `git show` the actual changes.
+
+### 2026-04-16 — Phase 2 complete (Code interpreter)
+Agent: Claude Opus 4.6 (1M context)
+
+- Proxy now reads `E2b-Sandbox-Port` header to route requests to port
+  49999 (code interpreter FastAPI overlay) alongside the default 49983
+  (envd). No new dispatch logic needed — just a port override in the
+  existing proxy handler (`f48e414`).
+- `assets/Dockerfile.code-interpreter` — multi-stage build that clones
+  `e2b-dev/code-interpreter` at a pinned SHA, installs Jupyter +
+  Python/JS kernels + the full data-science stack + the FastAPI server
+  in a venv. Reuses the envd-builder stage for layer cache sharing
+  (`cfc3b9b`).
+- `EnsureCodeInterpreterImage` follows the `EnsureEnvdSource` tar-context
+  pattern (`2887818`).
+- `Store.SeedBuiltIn` creates/updates built-in templates by alias.
+  `serveCmd` seeds `code-interpreter-v1` at startup (`0a7dadc`).
+- `build-image --template=code-interpreter|all` flag; doctor informational
+  check (`700e919`).
+- Python and TypeScript E2E tests for the code interpreter SDK (`5225b97`).
+- Total: ~530 new lines of Go + Dockerfile + tests across 6 tasks.
+  All unit tests green (`go test -race ./...`). E2E tests written but
+  not run yet (require building the ~3 GB code-interpreter image first).
 
 ### 2026-04-16 — complete task 15 (Webmaster chrome template acceptance)
 Agent: Claude Opus 4.6 (1M context)
