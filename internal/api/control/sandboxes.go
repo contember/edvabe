@@ -15,12 +15,20 @@ import (
 )
 
 type newSandboxRequest struct {
-	TemplateID string                    `json:"templateID"`
-	Timeout    int                       `json:"timeout"`
-	Metadata   map[string]string         `json:"metadata"`
-	EnvVars    map[string]string         `json:"envVars"`
-	AutoPause  bool                      `json:"autoPause"`
-	Lifecycle  *newSandboxLifecycleInput `json:"lifecycle,omitempty"`
+	TemplateID         string                    `json:"templateID"`
+	Alias              string                    `json:"alias,omitempty"`
+	Timeout            int                       `json:"timeout"`
+	Metadata           map[string]string         `json:"metadata"`
+	EnvVars            map[string]string         `json:"envVars"`
+	AutoPause          bool                      `json:"autoPause"`
+	Lifecycle          *newSandboxLifecycleInput `json:"lifecycle,omitempty"`
+	// Accepted for wire compat but not enforced in edvabe.
+	Secure             bool                      `json:"secure,omitempty"`
+	AllowInternetAccess *bool                    `json:"allow_internet_access,omitempty"`
+	Network            *json.RawMessage          `json:"network,omitempty"`
+	VolumeMounts       []json.RawMessage         `json:"volumeMounts,omitempty"`
+	MCP                *json.RawMessage          `json:"mcp,omitempty"`
+	AutoResume         *json.RawMessage          `json:"autoResume,omitempty"`
 }
 
 // newSandboxLifecycleInput mirrors the SDK's NewSandbox.lifecycle field.
@@ -33,6 +41,8 @@ type newSandboxLifecycleInput struct {
 type sandboxResponse struct {
 	SandboxID          string            `json:"sandboxID"`
 	TemplateID         string            `json:"templateID"`
+	Alias              string            `json:"alias,omitempty"`
+	Aliases            []string          `json:"aliases,omitempty"`
 	ClientID           string            `json:"clientID"`
 	EnvdVersion        string            `json:"envdVersion"`
 	EnvdAccessToken    string            `json:"envdAccessToken"`
@@ -83,6 +93,7 @@ func createSandbox(manager sandboxManager, provider versionProvider, w http.Resp
 
 	sbx, err := manager.Create(r.Context(), sandbox.CreateOptions{
 		TemplateID: req.TemplateID,
+		Alias:      req.Alias,
 		Metadata:   req.Metadata,
 		EnvVars:    req.EnvVars,
 		Timeout:    time.Duration(req.Timeout) * time.Second,
@@ -340,6 +351,150 @@ func snapshotSandbox(manager sandboxManager, w http.ResponseWriter, r *http.Requ
 	}
 }
 
+// ──────────────────────────────────────────────────────────────────────
+// Network update — records state but does not enforce.
+// ──────────────────────────────────────────────────────────────────────
+
+type networkUpdateRequest struct {
+	AllowOut []string `json:"allowOut"`
+	DenyOut  []string `json:"denyOut"`
+}
+
+func updateSandboxNetwork(manager sandboxManager, w http.ResponseWriter, r *http.Request) {
+	id := strings.TrimSuffix(sandboxIDFromPath(r.URL.Path), "/network")
+	if id == "" || strings.Contains(id, "/") {
+		http.NotFound(w, r)
+		return
+	}
+	if _, err := manager.Get(id); err != nil {
+		writeManagerError(w, err)
+		return
+	}
+	// Accept and discard — edvabe does not enforce egress rules.
+	var req networkUpdateRequest
+	if r.ContentLength > 0 {
+		_ = json.NewDecoder(r.Body).Decode(&req)
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// ──────────────────────────────────────────────────────────────────────
+// Refreshes — legacy keepalive: treat as a timeout reset.
+// ──────────────────────────────────────────────────────────────────────
+
+type refreshRequest struct {
+	Duration int `json:"duration"`
+}
+
+func refreshSandbox(manager sandboxManager, w http.ResponseWriter, r *http.Request) {
+	id := strings.TrimSuffix(sandboxIDFromPath(r.URL.Path), "/refreshes")
+	if id == "" || strings.Contains(id, "/") {
+		http.NotFound(w, r)
+		return
+	}
+	var req refreshRequest
+	if r.ContentLength > 0 {
+		_ = json.NewDecoder(r.Body).Decode(&req)
+	}
+	if req.Duration > 0 {
+		if err := manager.SetTimeout(id, time.Duration(req.Duration)*time.Second); err != nil {
+			writeManagerError(w, err)
+			return
+		}
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// ──────────────────────────────────────────────────────────────────────
+// Logs — empty paginated stub. Envd's own stdout is not captured yet.
+// ──────────────────────────────────────────────────────────────────────
+
+func getSandboxLogs(manager sandboxManager, w http.ResponseWriter, r *http.Request) {
+	// Path: /v2/sandboxes/{id}/logs
+	path := strings.TrimPrefix(r.URL.Path, "/v2/sandboxes/")
+	id := strings.TrimSuffix(path, "/logs")
+	if id == "" || strings.Contains(id, "/") {
+		http.NotFound(w, r)
+		return
+	}
+	if _, err := manager.Get(id); err != nil {
+		writeManagerError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"logs":    []any{},
+		"hasMore": false,
+	})
+}
+
+// ──────────────────────────────────────────────────────────────────────
+// Metrics — sourced from runtime.Stats where possible.
+// ──────────────────────────────────────────────────────────────────────
+
+type metricsEntry struct {
+	Timestamp          time.Time `json:"timestamp"`
+	CPUCount           int       `json:"cpuCount"`
+	CPUUsedPct         float64   `json:"cpuUsedPct"`
+	MemTotalMiB        int64     `json:"memTotalMiB"`
+	MemUsedMiB         int64     `json:"memUsedMiB"`
+	DiskTotalMiB       int64     `json:"diskTotalMiB"`
+	DiskUsedMiB        int64     `json:"diskUsedMiB"`
+}
+
+func getSandboxMetrics(manager sandboxManager, rt runtime.Runtime, w http.ResponseWriter, r *http.Request) {
+	// Path: /sandboxes/{id}/metrics
+	id := strings.TrimSuffix(sandboxIDFromPath(r.URL.Path), "/metrics")
+	if id == "" || strings.Contains(id, "/") {
+		http.NotFound(w, r)
+		return
+	}
+	if _, err := manager.Get(id); err != nil {
+		writeManagerError(w, err)
+		return
+	}
+	stats, err := rt.Stats(r.Context(), id)
+	if err != nil {
+		writeJSON(w, http.StatusOK, []metricsEntry{})
+		return
+	}
+	writeJSON(w, http.StatusOK, []metricsEntry{{
+		Timestamp:    time.Now(),
+		CPUUsedPct:   stats.CPUUsedPercent,
+		MemTotalMiB:  stats.MemoryLimitMB,
+		MemUsedMiB:   stats.MemoryUsedMB,
+		DiskUsedMiB:  stats.DiskUsedMB,
+	}})
+}
+
+func getBatchSandboxMetrics(manager sandboxManager, rt runtime.Runtime, w http.ResponseWriter, r *http.Request) {
+	// Path: /sandboxes/metrics?sandbox_ids=a,b,c
+	ids := strings.Split(r.URL.Query().Get("sandbox_ids"), ",")
+	result := map[string][]metricsEntry{}
+	for _, id := range ids {
+		id = strings.TrimSpace(id)
+		if id == "" {
+			continue
+		}
+		if _, err := manager.Get(id); err != nil {
+			result[id] = []metricsEntry{}
+			continue
+		}
+		stats, err := rt.Stats(r.Context(), id)
+		if err != nil {
+			result[id] = []metricsEntry{}
+			continue
+		}
+		result[id] = []metricsEntry{{
+			Timestamp:   time.Now(),
+			CPUUsedPct:  stats.CPUUsedPercent,
+			MemTotalMiB: stats.MemoryLimitMB,
+			MemUsedMiB:  stats.MemoryUsedMB,
+			DiskUsedMiB: stats.DiskUsedMB,
+		}}
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
 func parseStateFilter(raw string) map[sandbox.State]struct{} {
 	if raw == "" {
 		return nil
@@ -371,9 +526,15 @@ func writeManagerError(w http.ResponseWriter, err error) {
 }
 
 func toSandboxResponse(manager sandboxManager, provider versionProvider, sbx *sandbox.Sandbox) sandboxResponse {
+	var aliases []string
+	if sbx.Alias != "" {
+		aliases = []string{sbx.Alias}
+	}
 	return sandboxResponse{
 		SandboxID:          sbx.ID,
 		TemplateID:         sbx.TemplateID,
+		Alias:              sbx.Alias,
+		Aliases:            aliases,
 		ClientID:           "local",
 		EnvdVersion:        provider.Version(),
 		EnvdAccessToken:    sbx.EnvdToken,

@@ -42,6 +42,7 @@ const (
 type Sandbox struct {
 	ID           string
 	TemplateID   string
+	Alias        string
 	ContainerID  string
 	AgentHost    string
 	AgentPort    int

@@ -136,6 +136,7 @@ func (m *Manager) Domain() string { return m.domain }
 // cares about. The control-plane handler translates HTTP JSON into this.
 type CreateOptions struct {
 	TemplateID string
+	Alias      string
 	Metadata   map[string]string
 	EnvVars    map[string]string
 	Timeout    time.Duration
@@ -214,6 +215,7 @@ func (m *Manager) Create(ctx context.Context, opts CreateOptions) (*Sandbox, err
 	s := &Sandbox{
 		ID:           id,
 		TemplateID:   templateID,
+		Alias:        opts.Alias,
 		ContainerID:  handle.ContainerID,
 		AgentHost:    handle.AgentHost,
 		AgentPort:    handle.AgentPort,
