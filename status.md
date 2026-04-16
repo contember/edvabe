@@ -228,7 +228,18 @@ Legend: `[ ]` not started · `[~]` in progress · `[x]` done
           ready probe (`ca424e4`);
       (3) custom template images lacked the `user` account envd requires
           → "invalid default user" error (`16fb3b7`).
-- [~] **Task 15 — Webmaster chrome template acceptance**
+- [x] **Task 15 — Webmaster chrome template acceptance** (078c4e5, 2026-04-16)
+      `test/e2e/ts/test_webmaster_chrome.ts` — Phase 3 ship gate:
+      builds the unmodified webmaster chrome template against edvabe,
+      creates a sandbox, runs `echo` via `commands.run`. Passes in ~75 s.
+      Three prerequisite bugs fixed:
+      (1) file cache rejected uploads because hash was computed differently
+          by the SDK (over metadata, not tar stream) (`d2dad72`);
+      (2) useradd step placed too late — build steps referencing `user`
+          account failed (`e6d5eca`); COPY steps without `--chown`
+          under non-root USER context failed (`5c8155c`);
+      (3) envd needs root — USER root added to envd tail so edvabe-init
+          and envd can manage processes (`e8a04d3`).
 
 ## Phase 1 tasks
 
@@ -355,8 +366,26 @@ Phase 1 is complete.
 Newest first. Keep entries tight. Reference commit hashes so future
 agents can `git show` the actual changes.
 
-### 2026-04-16 — claim task 15 (Webmaster chrome template acceptance)
+### 2026-04-16 — complete task 15 (Webmaster chrome template acceptance)
 Agent: Claude Opus 4.6 (1M context)
+
+- `test/e2e/ts/test_webmaster_chrome.ts` — E2E test that dynamically
+  imports webmaster's chrome template.ts, builds it against edvabe,
+  creates a sandbox, and verifies `commands.run` works. Skips when
+  `WEBMASTER_REPO` env var is not set.
+- `internal/template/filecache/filecache.go` — removed hash verification
+  in `Put`; the SDK's hash is computed over file metadata (paths, modes,
+  sizes), not over the tar stream, so server-side re-verification always
+  failed.
+- `internal/template/builder/translate.go` — three fixes:
+  (a) moved useradd step from envd tail to right after FROM so build
+      steps can reference the `user` account;
+  (b) COPY steps under non-root USER context now default `--chown` to
+      the current user;
+  (c) envd injection tail now resets `USER root` so envd runs as root
+      (required for process management).
+- Acceptance: `WEBMASTER_REPO=... make test-e2e-ts` passes all 8 tests.
+  `go test ./...` all green.
 
 ### 2026-04-16 — complete task 14 (TypeScript template-build E2E)
 Agent: Claude Opus 4.6 (1M context)
