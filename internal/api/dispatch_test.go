@@ -10,7 +10,7 @@ func TestRouterRoutesToControlWhenNoSandbox(t *testing.T) {
 	var hits struct{ control, proxy int }
 	ctrl := http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) { hits.control++ })
 	prox := http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) { hits.proxy++ })
-	h := NewRouter(ctrl, prox)
+	h := NewRouter(ctrl, prox, nil)
 
 	req := httptest.NewRequest("GET", "http://localhost:3000/health", nil)
 	h.ServeHTTP(httptest.NewRecorder(), req)
@@ -24,7 +24,7 @@ func TestRouterRoutesToProxyViaHeader(t *testing.T) {
 	var hits struct{ control, proxy int }
 	ctrl := http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) { hits.control++ })
 	prox := http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) { hits.proxy++ })
-	h := NewRouter(ctrl, prox)
+	h := NewRouter(ctrl, prox, nil)
 
 	req := httptest.NewRequest("POST", "http://localhost:3000/process.Process/Start", nil)
 	req.Header.Set(HeaderSandboxID, "isb_abc")
@@ -40,7 +40,7 @@ func TestRouterRoutesToProxyViaHost(t *testing.T) {
 	var seen *http.Request
 	ctrl := http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) { t.Error("should not hit control") })
 	prox := http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) { seen = r })
-	h := NewRouter(ctrl, prox)
+	h := NewRouter(ctrl, prox, nil)
 
 	req := httptest.NewRequest("GET", "http://49983-isb_host.localhost:3000/files?path=/etc", nil)
 	req.Host = "49983-isb_host.localhost:3000"
@@ -61,7 +61,7 @@ func TestRouterHeaderWinsOverHost(t *testing.T) {
 	var seen *http.Request
 	ctrl := http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) { t.Error("should not hit control") })
 	prox := http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) { seen = r })
-	h := NewRouter(ctrl, prox)
+	h := NewRouter(ctrl, prox, nil)
 
 	req := httptest.NewRequest("GET", "http://49999-isb_host.localhost:3000/files", nil)
 	req.Host = "49999-isb_host.localhost:3000"

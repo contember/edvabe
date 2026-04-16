@@ -1,6 +1,9 @@
 package api
 
-import "net/http"
+import (
+	"net/http"
+	"strings"
+)
 
 const (
 	// HeaderSandboxID is the header the E2B SDKs send on every
@@ -23,8 +26,13 @@ const (
 // the headers are populated so the proxy handler doesn't have to
 // re-parse the host. Requests with neither go to the control plane
 // unchanged.
-func NewRouter(control, proxy http.Handler) http.Handler {
+func NewRouter(control, proxy, dashboard http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if dashboard != nil && strings.HasPrefix(r.URL.Path, "/dashboard") {
+			dashboard.ServeHTTP(w, r)
+			return
+		}
+
 		id := r.Header.Get(HeaderSandboxID)
 
 		if id == "" {

@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>edvabe dashboard</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#0d1117;--surface:#161b22;--border:#30363d;
+  --text:#e6edf3;--text-dim:#8b949e;--text-muted:#484f58;
+  --green:#3fb950;--yellow:#d29922;--red:#f85149;--blue:#58a6ff;
+  --font:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
+}
+html{font-family:var(--font);font-size:14px;background:var(--bg);color:var(--text)}
+body{max-width:1200px;margin:0 auto;padding:24px 16px}
+
+header{display:flex;align-items:baseline;gap:12px;margin-bottom:24px}
+header h1{font-size:18px;font-weight:600;letter-spacing:-.02em}
+header .version{color:var(--text-dim);font-size:12px}
+header .refresh-indicator{margin-left:auto;color:var(--text-muted);font-size:12px}
+
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:28px}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:16px}
+.card .label{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--text-dim);margin-bottom:4px}
+.card .value{font-size:28px;font-weight:600}
+.card .value.green{color:var(--green)}
+.card .value.yellow{color:var(--yellow)}
+
+section{margin-bottom:28px}
+section h2{font-size:14px;font-weight:600;margin-bottom:10px;color:var(--text-dim);text-transform:uppercase;letter-spacing:.04em}
+
+table{width:100%;border-collapse:collapse;background:var(--surface);border:1px solid var(--border);border-radius:8px;overflow:hidden}
+th,td{padding:8px 12px;text-align:left;border-bottom:1px solid var(--border);font-size:13px;white-space:nowrap}
+th{color:var(--text-dim);font-weight:500;font-size:11px;text-transform:uppercase;letter-spacing:.04em;background:var(--bg)}
+tr:last-child td{border-bottom:none}
+tr:hover td{background:rgba(136,198,255,.04)}
+
+.state{display:inline-block;padding:2px 8px;border-radius:12px;font-size:11px;font-weight:600;text-transform:uppercase}
+.state-running{background:rgba(63,185,80,.15);color:var(--green)}
+.state-paused{background:rgba(210,153,34,.15);color:var(--yellow)}
+
+.build-status{font-size:11px;font-weight:600;text-transform:uppercase}
+.build-ready{color:var(--green)}
+.build-building,.build-waiting{color:var(--yellow)}
+.build-error{color:var(--red)}
+
+.meta{font-size:11px;color:var(--text-dim);max-width:200px;overflow:hidden;text-overflow:ellipsis}
+.mono{font-family:var(--font);font-size:12px}
+.id-cell{max-width:180px;overflow:hidden;text-overflow:ellipsis}
+
+.btn-delete{
+  background:transparent;border:1px solid var(--border);color:var(--text-dim);
+  padding:3px 10px;border-radius:6px;cursor:pointer;font-size:11px;font-family:var(--font);
+  transition:all .15s;
+}
+.btn-delete:hover{border-color:var(--red);color:var(--red)}
+
+.empty{text-align:center;padding:32px;color:var(--text-muted);font-size:13px}
+.ttl{font-variant-numeric:tabular-nums}
+.ttl-warn{color:var(--yellow)}
+.ttl-crit{color:var(--red)}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>edvabe</h1>
+  <span class="version">dashboard</span>
+  <span class="refresh-indicator" id="refresh-indicator"></span>
+</header>
+
+<div class="cards" id="cards"></div>
+
+<section>
+  <h2>Sandboxes</h2>
+  <div id="sandbox-table"></div>
+</section>
+
+<section>
+  <h2>Templates</h2>
+  <div id="template-table"></div>
+</section>
+
+<script>
+const REFRESH_MS = 3000;
+
+function formatAge(isoStr) {
+  const d = new Date(isoStr);
+  const sec = Math.floor((Date.now() - d.getTime()) / 1000);
+  if (sec < 60) return sec + 's ago';
+  if (sec < 3600) return Math.floor(sec / 60) + 'm ago';
+  if (sec < 86400) return Math.floor(sec / 3600) + 'h ago';
+  return Math.floor(sec / 86400) + 'd ago';
+}
+
+function formatTTL(expiresAt) {
+  const sec = Math.floor((new Date(expiresAt).getTime() - Date.now()) / 1000);
+  if (sec <= 0) return { text: 'expired', cls: 'ttl-crit' };
+  if (sec < 60) return { text: sec + 's', cls: sec < 30 ? 'ttl-crit' : 'ttl-warn' };
+  const m = Math.floor(sec / 60);
+  const s = sec % 60;
+  const text = m + 'm ' + String(s).padStart(2, '0') + 's';
+  return { text, cls: m < 1 ? 'ttl-warn' : '' };
+}
+
+function formatMeta(meta) {
+  if (!meta || Object.keys(meta).length === 0) return '';
+  return Object.entries(meta).map(([k, v]) => k + '=' + v).join(', ');
+}
+
+function renderCards(summary) {
+  document.getElementById('cards').innerHTML = `
+    <div class="card"><div class="label">Total sandboxes</div><div class="value">${summary.totalSandboxes}</div></div>
+    <div class="card"><div class="label">Running</div><div class="value green">${summary.running}</div></div>
+    <div class="card"><div class="label">Paused</div><div class="value yellow">${summary.paused}</div></div>
+    <div class="card"><div class="label">Templates</div><div class="value">${summary.totalTemplates}</div></div>
+  `;
+}
+
+function renderSandboxes(sandboxes) {
+  const el = document.getElementById('sandbox-table');
+  if (sandboxes.length === 0) {
+    el.innerHTML = '<div class="empty">No sandboxes running</div>';
+    return;
+  }
+  let html = `<table>
+    <thead><tr>
+      <th>ID</th><th>Template</th><th>State</th><th>Created</th><th>TTL</th><th>Metadata</th><th></th>
+    </tr></thead><tbody>`;
+  for (const s of sandboxes) {
+    const ttl = s.state === 'paused' ? { text: 'paused', cls: '' } : formatTTL(s.expiresAt);
+    const meta = formatMeta(s.metadata);
+    html += `<tr>
+      <td class="mono id-cell" title="${s.id}">${s.id}</td>
+      <td class="mono">${s.templateID}${s.alias ? ' <span class="meta">(' + s.alias + ')</span>' : ''}</td>
+      <td><span class="state state-${s.state}">${s.state}</span></td>
+      <td title="${s.createdAt}">${formatAge(s.createdAt)}</td>
+      <td class="ttl ${ttl.cls}">${ttl.text}</td>
+      <td class="meta" title="${meta}">${meta || '<span style="color:var(--text-muted)">&mdash;</span>'}</td>
+      <td><button class="btn-delete" onclick="deleteSandbox('${s.id}')">delete</button></td>
+    </tr>`;
+  }
+  html += '</tbody></table>';
+  el.innerHTML = html;
+}
+
+function renderTemplates(templates) {
+  const el = document.getElementById('template-table');
+  if (templates.length === 0) {
+    el.innerHTML = '<div class="empty">No templates registered</div>';
+    return;
+  }
+  let html = `<table>
+    <thead><tr>
+      <th>Alias</th><th>Name</th><th>Image</th><th>Build</th><th>Created</th>
+    </tr></thead><tbody>`;
+  for (const t of templates) {
+    const buildCls = t.latestBuildStatus ? 'build-' + t.latestBuildStatus : '';
+    html += `<tr>
+      <td class="mono">${t.alias || t.id}</td>
+      <td>${t.name || '<span style="color:var(--text-muted)">&mdash;</span>'}</td>
+      <td class="mono meta">${t.imageTag || '&mdash;'}</td>
+      <td><span class="build-status ${buildCls}">${t.latestBuildStatus || '&mdash;'}</span></td>
+      <td title="${t.createdAt}">${formatAge(t.createdAt)}</td>
+    </tr>`;
+  }
+  html += '</tbody></table>';
+  el.innerHTML = html;
+}
+
+async function fetchOverview() {
+  try {
+    const resp = await fetch('/dashboard/api/overview');
+    if (!resp.ok) throw new Error(resp.statusText);
+    const data = await resp.json();
+    renderCards(data.summary);
+    renderSandboxes(data.sandboxes);
+    renderTemplates(data.templates);
+    document.getElementById('refresh-indicator').textContent =
+      'updated ' + new Date().toLocaleTimeString();
+  } catch (e) {
+    document.getElementById('refresh-indicator').textContent = 'fetch failed';
+  }
+}
+
+async function deleteSandbox(id) {
+  if (!confirm('Delete sandbox ' + id + '?')) return;
+  try {
+    await fetch('/dashboard/api/sandboxes/' + id, { method: 'DELETE' });
+    fetchOverview();
+  } catch (e) {
+    alert('Failed to delete sandbox: ' + e.message);
+  }
+}
+
+fetchOverview();
+setInterval(fetchOverview, REFRESH_MS);
+</script>
+</body>
+</html>

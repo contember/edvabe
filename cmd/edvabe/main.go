@@ -15,6 +15,7 @@ import (
 	"github.com/contember/edvabe/internal/agent/upstream"
 	api "github.com/contember/edvabe/internal/api"
 	"github.com/contember/edvabe/internal/api/control"
+	"github.com/contember/edvabe/internal/api/dashboard"
 	"github.com/contember/edvabe/internal/doctor"
 	"github.com/contember/edvabe/internal/runtime/docker"
 	"github.com/contember/edvabe/internal/sandbox"
@@ -182,7 +183,11 @@ func serveCmd(args []string) {
 		PublicBase: fmt.Sprintf("http://localhost:%d", *port),
 	})
 	proxyHandler := api.NewProxy(mgr, rt)
-	handler := api.NewRouter(controlHandler, proxyHandler)
+	dashboardHandler := dashboard.NewHandler(dashboard.HandlerOptions{
+		Manager:   mgr,
+		Templates: templateStore,
+	})
+	handler := api.NewRouter(controlHandler, proxyHandler, dashboardHandler)
 
 	addr := fmt.Sprintf(":%d", *port)
 	go mgr.Run(context.Background(), 0)
