@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "tsx --test test_basic.ts"
+    "test": "tsx --test test_basic.ts test_template_build.ts"
   },
   "dependencies": {
     "e2b": "2.19.0"
