@@ -167,9 +167,21 @@ func Translate(in Input) (*Output, error) {
 			}
 			src := step.Args[0]
 			dest := step.Args[1]
+			// Docker COPY always creates files owned by root:root
+			// unless --chown is specified. When the current USER is
+			// non-root and no explicit chown is requested, default to
+			// the current user so subsequent RUN commands (which run as
+			// that user) can operate on the copied files.
+			chown := ""
+			if len(step.Args) >= 3 {
+				chown = step.Args[2]
+			}
+			if chown == "" && currentUser != "root" {
+				chown = currentUser
+			}
 			var flags string
-			if len(step.Args) >= 3 && step.Args[2] != "" {
-				flags += " --chown=" + step.Args[2]
+			if chown != "" {
+				flags += " --chown=" + chown
 			}
 			if len(step.Args) >= 4 && step.Args[3] != "" {
 				flags += " --chmod=" + step.Args[3]
