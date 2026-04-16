@@ -26,15 +26,10 @@ RUN CGO_ENABLED=0 GOOS=linux go build \
     -ldflags="-s -w" \
     -o /edvabe ./cmd/edvabe
 
-FROM debian:bookworm-slim
+FROM docker:28-cli
 
-# Docker CLI is needed for building base/envd-source/code-interpreter
-# images inside the container (EnsureBaseImage shells out to `docker build`).
-RUN apt-get update && apt-get install -y --no-install-recommends \
-        ca-certificates \
-        curl \
-        docker.io \
-    && rm -rf /var/lib/apt/lists/*
+# curl is needed for the healthcheck probe.
+RUN apk add --no-cache curl
 
 COPY --from=builder /edvabe /usr/local/bin/edvabe
 
