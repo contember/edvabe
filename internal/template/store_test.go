@@ -248,6 +248,87 @@ func TestStorePersistenceMissingFile(t *testing.T) {
 	}
 }
 
+func TestSeedBuiltInCreatesNew(t *testing.T) {
+	s, _ := newStore(t)
+	err := s.SeedBuiltIn(SeedOptions{
+		Alias:    "code-interpreter-v1",
+		ImageTag: "edvabe/code-interpreter:latest",
+		StartCmd: "start.sh",
+		ReadyCmd: "curl localhost:49999/health",
+	})
+	if err != nil {
+		t.Fatalf("SeedBuiltIn: %v", err)
+	}
+
+	tpl, err := s.ResolveAlias("code-interpreter-v1")
+	if err != nil {
+		t.Fatalf("ResolveAlias: %v", err)
+	}
+	if tpl.ImageTag != "edvabe/code-interpreter:latest" {
+		t.Errorf("ImageTag = %q", tpl.ImageTag)
+	}
+	if tpl.StartCmd != "start.sh" {
+		t.Errorf("StartCmd = %q", tpl.StartCmd)
+	}
+	if tpl.ReadyCmd != "curl localhost:49999/health" {
+		t.Errorf("ReadyCmd = %q", tpl.ReadyCmd)
+	}
+	if len(tpl.Builds) != 1 || tpl.Builds[0].Status != BuildStatusReady {
+		t.Errorf("expected one ready build, got %+v", tpl.Builds)
+	}
+}
+
+func TestSeedBuiltInUpdatesExisting(t *testing.T) {
+	s, _ := newStore(t)
+	_ = s.SeedBuiltIn(SeedOptions{
+		Alias:    "ci",
+		ImageTag: "old:v1",
+		StartCmd: "old-start",
+		ReadyCmd: "old-ready",
+	})
+	tpl1, _ := s.ResolveAlias("ci")
+
+	_ = s.SeedBuiltIn(SeedOptions{
+		Alias:    "ci",
+		ImageTag: "new:v2",
+		StartCmd: "new-start",
+		ReadyCmd: "new-ready",
+	})
+	tpl2, _ := s.ResolveAlias("ci")
+
+	if tpl2.ID != tpl1.ID {
+		t.Errorf("SeedBuiltIn created a new template instead of updating: %q != %q", tpl2.ID, tpl1.ID)
+	}
+	if tpl2.ImageTag != "new:v2" {
+		t.Errorf("ImageTag not updated: %q", tpl2.ImageTag)
+	}
+	if tpl2.StartCmd != "new-start" {
+		t.Errorf("StartCmd not updated: %q", tpl2.StartCmd)
+	}
+}
+
+func TestSeedBuiltInIdempotent(t *testing.T) {
+	s, _ := newStore(t)
+	opts := SeedOptions{
+		Alias:    "idempotent",
+		ImageTag: "img:v1",
+		StartCmd: "start",
+	}
+	_ = s.SeedBuiltIn(opts)
+	_ = s.SeedBuiltIn(opts)
+
+	list := s.List()
+	count := 0
+	for _, tpl := range list {
+		if tpl.Alias == "idempotent" {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Errorf("expected 1 template with alias 'idempotent', got %d", count)
+	}
+}
+
 func TestStoreConcurrentReads(t *testing.T) {
 	s, _ := newStore(t)
 	tpl, _ := s.Create(CreateOptions{Name: "hot"})

@@ -145,6 +145,50 @@ func (s *Store) flush() error {
 	return nil
 }
 
+// SeedOptions describes a built-in template that edvabe registers at
+// startup. Built-in templates are idempotent: if the alias already
+// exists the record is updated in-place (startCmd, readyCmd, imageTag
+// may have changed after a binary upgrade); if it does not exist a new
+// template is created.
+type SeedOptions struct {
+	Alias    string
+	ImageTag string
+	StartCmd string
+	ReadyCmd string
+}
+
+// SeedBuiltIn creates or updates a built-in template. See SeedOptions.
+func (s *Store) SeedBuiltIn(opts SeedOptions) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if id, ok := s.aliases[opts.Alias]; ok {
+		t := s.templates[id]
+		t.ImageTag = opts.ImageTag
+		t.StartCmd = opts.StartCmd
+		t.ReadyCmd = opts.ReadyCmd
+		return s.flush()
+	}
+
+	t := &Template{
+		ID:        NewTemplateID(),
+		Name:      opts.Alias,
+		Alias:     opts.Alias,
+		ImageTag:  opts.ImageTag,
+		StartCmd:  opts.StartCmd,
+		ReadyCmd:  opts.ReadyCmd,
+		CreatedAt: s.clock.Now(),
+		Builds: []Build{{
+			ID:        NewBuildID(),
+			Status:    BuildStatusReady,
+			StartedAt: s.clock.Now(),
+		}},
+	}
+	s.templates[t.ID] = t
+	s.aliases[opts.Alias] = t.ID
+	return s.flush()
+}
+
 // CreateOptions is the input to Store.Create. Name is required and
 // doubles as the alias unless Alias is set explicitly (E2B convention:
 // the `name` field on POST /v3/templates is used as both).

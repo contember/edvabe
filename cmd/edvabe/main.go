@@ -103,9 +103,36 @@ func serveCmd(args []string) {
 		os.Exit(1)
 	}
 
+	// Build the code-interpreter image only if explicitly requested via
+	// EDVABE_BUILD_CODE_INTERPRETER=1. The image is large (~3 GB) and
+	// takes minutes to build; normally users run `edvabe build-image
+	// --template=code-interpreter` once and then `edvabe serve` finds
+	// it in the local Docker cache.
+	if os.Getenv("EDVABE_BUILD_CODE_INTERPRETER") == "1" {
+		if err := upstream.EnsureCodeInterpreterImage(context.Background(), upstream.CodeInterpreterTag); err != nil {
+			fmt.Fprintf(os.Stderr, "serve: ensure code-interpreter image: %v\n", err)
+			os.Exit(1)
+		}
+	}
+
 	templateStore, err := template.NewStore(template.Options{Path: templateStorePath()})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "serve: init template store: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Seed built-in templates so the SDK can resolve aliases like
+	// "code-interpreter-v1" without the user having to build the
+	// template through the SDK's build pipeline. The template record
+	// is metadata only — if the image hasn't been built yet, sandbox
+	// create will fail with a clear Docker error.
+	if err := templateStore.SeedBuiltIn(template.SeedOptions{
+		Alias:    "code-interpreter-v1",
+		ImageTag: upstream.CodeInterpreterTag,
+		StartCmd: "sudo --preserve-env=E2B_LOCAL /root/.jupyter/start-up.sh",
+		ReadyCmd: "curl -sf http://localhost:49999/health",
+	}); err != nil {
+		fmt.Fprintf(os.Stderr, "serve: seed code-interpreter template: %v\n", err)
 		os.Exit(1)
 	}
 
