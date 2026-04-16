@@ -6,12 +6,12 @@ update protocol.
 
 ## Current phase
 
-**Phase 2 — "Code interpreter"** — complete (2026-04-16)
+**Phase 4 — "Full surface"** — complete (2026-04-16)
+Previous: Phase 2 ("Code interpreter") — complete (2026-04-16)
 Previous: Phase 3 ("Templates and pause") — complete (2026-04-16)
 
-Phase ordering note: Phase 3 shipped before Phase 2 because the
-webmaster consumer needed templates + pause first. Phase 2 adds the
-code-interpreter overlay (`@e2b/code-interpreter` SDK support).
+All four implementation phases are complete. Phase 5 (native agent)
+is optional and built only on demand.
 
 ## Phase 3 tasks
 
@@ -389,14 +389,50 @@ Legend: `[ ]` not started · `[~]` in progress · `[x]` done
       New Makefile targets: `test-e2e-code-interpreter-python`,
       `test-e2e-code-interpreter-ts`.
 
-## Phase 4+ (not yet active)
+## Phase 4 tasks
 
-See [docs/06-phases.md](docs/06-phases.md) for Phases 4–5 scope.
+Legend: `[ ]` not started · `[~]` in progress · `[x]` done
+
+- [x] **Task 1 — Full API surface stubs + response enrichments** (d080ce0, 2026-04-16)
+      Single commit covering the entire Phase 4 scope:
+      **Stub endpoints**: GET /teams (hardcoded local team),
+      /teams/{id}/metrics, /teams/{id}/metrics/max, GET/POST/DELETE
+      /api-keys (in-memory CRUD), POST/DELETE /access-tokens (in-memory),
+      GET/POST/DELETE /volumes (in-memory), GET /volumes/{id},
+      GET /snapshots (empty), GET /nodes (empty), POST /admin/* (501).
+      **Sandbox surface**: PUT /sandboxes/{id}/network (accept, don't
+      enforce), POST /sandboxes/{id}/refreshes (keepalive → timeout),
+      GET /v2/sandboxes/{id}/logs (empty paginated), GET
+      /sandboxes/{id}/metrics + GET /sandboxes/metrics (Docker stats).
+      **Response enrichments**: alias/aliases on sandbox responses,
+      POST /sandboxes accepts extra SDK fields (secure, network,
+      volumeMounts, mcp, autoResume) without crashing.
+      12 new handler tests, all existing tests unchanged.
+
+## Phase 5+ (optional, not yet active)
+
+See [docs/06-phases.md](docs/06-phases.md) for Phase 5 scope. Only
+built if upstream envd breaks or we want container-less sandboxes.
 
 ## Session log
 
 Newest first. Keep entries tight. Reference commit hashes so future
 agents can `git show` the actual changes.
+
+### 2026-04-16 — Phase 4 complete (Full surface)
+Agent: Claude Opus 4.6 (1M context)
+
+- Single commit (`d080ce0`) covers the entire Phase 4 scope: ~890 new
+  lines across `stubs.go`, `stubs_test.go`, `sandboxes.go`, `router.go`,
+  `sandbox.go`, `manager.go`.
+- Stub endpoints: teams, api-keys, access-tokens, volumes, snapshots
+  list, nodes, admin — all return stable shapes so the SDK never
+  crashes on missing endpoints.
+- Sandbox surface: network update (accept/ignore), refreshes (legacy
+  keepalive), logs (empty), metrics (from Docker stats or zeros).
+- Response enrichments: alias/aliases on sandbox responses, extra SDK
+  fields accepted on POST /sandboxes without crashing.
+- 12 new handler tests, all 39 control tests green, full suite green.
 
 ### 2026-04-16 — Phase 2 complete (Code interpreter)
 Agent: Claude Opus 4.6 (1M context)
