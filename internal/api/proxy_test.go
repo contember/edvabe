@@ -174,6 +174,74 @@ func TestProxyReturns502WhenUpstreamDown(t *testing.T) {
 	}
 }
 
+func TestProxyPortOverride(t *testing.T) {
+	// Spin up a backend that echoes the Host it received, so we can
+	// verify the proxy targeted the right port.
+	var gotHost string
+	host, port, closeBackend := newBackend(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotHost = r.Host
+		w.WriteHeader(200)
+	}))
+	defer closeBackend()
+
+	mgr := &fakeLookup{byID: map[string]*sandbox.Sandbox{"isb_p": {ID: "isb_p"}}}
+	// The resolver returns a different port (1) so the only way the
+	// request can reach our backend is via the header override.
+	rt := &fakeResolver{host: host, port: 1}
+	front := httptest.NewServer(NewProxy(mgr, rt))
+	defer front.Close()
+
+	req, _ := http.NewRequest("GET", front.URL+"/health", nil)
+	req.Header.Set(HeaderSandboxID, "isb_p")
+	req.Header.Set(HeaderSandboxPort, strconv.Itoa(port))
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("request: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		t.Errorf("status = %d, want 200", resp.StatusCode)
+	}
+	wantHost := fmt.Sprintf("%s:%d", host, port)
+	if gotHost != wantHost {
+		t.Errorf("backend Host = %q, want %q", gotHost, wantHost)
+	}
+}
+
+func TestProxyNoPortHeaderUsesDefault(t *testing.T) {
+	var gotHost string
+	host, port, closeBackend := newBackend(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotHost = r.Host
+		w.WriteHeader(200)
+	}))
+	defer closeBackend()
+
+	mgr := &fakeLookup{byID: map[string]*sandbox.Sandbox{"isb_d": {ID: "isb_d"}}}
+	rt := &fakeResolver{host: host, port: port}
+	front := httptest.NewServer(NewProxy(mgr, rt))
+	defer front.Close()
+
+	req, _ := http.NewRequest("GET", front.URL+"/health", nil)
+	req.Header.Set(HeaderSandboxID, "isb_d")
+	// No E2b-Sandbox-Port header — should use the resolver's port.
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("request: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		t.Errorf("status = %d, want 200", resp.StatusCode)
+	}
+	wantHost := fmt.Sprintf("%s:%d", host, port)
+	if gotHost != wantHost {
+		t.Errorf("backend Host = %q, want %q (default port not used)", gotHost, wantHost)
+	}
+}
+
 // TestProxyStreamsResponse verifies that FlushInterval: -1 is wired up
 // correctly: a backend that flushes two chunks with a 100ms gap between
 // them must not be coalesced into a single client-visible read.

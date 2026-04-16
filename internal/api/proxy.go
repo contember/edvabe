@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"strconv"
 
 	"github.com/contember/edvabe/internal/sandbox"
 )
@@ -74,6 +75,16 @@ func NewProxy(lookup SandboxLookup, resolver AgentResolver) http.Handler {
 			WriteError(w, http.StatusInternalServerError,
 				fmt.Sprintf("agent endpoint for %q: %v", id, err))
 			return
+		}
+
+		// The SDK sends E2b-Sandbox-Port to select which in-sandbox
+		// service to talk to (49983 = envd, 49999 = code interpreter,
+		// anything else = user service). Override the agent port when
+		// the header carries a valid, different port number.
+		if portHeader := r.Header.Get(HeaderSandboxPort); portHeader != "" {
+			if p, err := strconv.Atoi(portHeader); err == nil && p > 0 && p <= 65535 {
+				port = p
+			}
 		}
 
 		target, err := url.Parse(fmt.Sprintf("http://%s:%d", host, port))
