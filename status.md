@@ -217,7 +217,17 @@ Legend: `[ ]` not started · `[~]` in progress · `[x]` done
       timeout, kill-on-timeout, default-is-kill, pause-failure
       fallback) + 3 new handler tests (autoPause shortcut, explicit
       lifecycle, default kill). Full `go test -race ./...` green.
-- [~] **Task 14 — TypeScript template-build E2E**
+- [x] **Task 14 — TypeScript template-build E2E** (47e44c2, 2026-04-16)
+      `test/e2e/ts/test_template_build.ts` — Flow A E2E: build template
+      from `oven/bun:slim` → create sandbox → verify build artifact →
+      pause → connect (auto-resume) → run command. 2.3 s end-to-end.
+      Three prerequisite bugs fixed along the way:
+      (1) template IDs used uppercase base32 → Docker rejected the image
+          tag (`77760ca`);
+      (2) `WaitReady` didn't pass the access token to envd → 401 on
+          ready probe (`ca424e4`);
+      (3) custom template images lacked the `user` account envd requires
+          → "invalid default user" error (`16fb3b7`).
 - [ ] **Task 15 — Webmaster chrome template acceptance**
 
 ## Phase 1 tasks
@@ -345,8 +355,29 @@ Phase 1 is complete.
 Newest first. Keep entries tight. Reference commit hashes so future
 agents can `git show` the actual changes.
 
-### 2026-04-16 — claim task 14 (TypeScript template-build E2E)
+### 2026-04-16 — complete task 14 (TypeScript template-build E2E)
 Agent: Claude Opus 4.6 (1M context)
+
+- `test/e2e/ts/test_template_build.ts` — new E2E test exercising the
+  full Phase 3 Flow A: `Template.build()` + `Sandbox.create()` +
+  `commands.run` + `pause()` + `Sandbox.connect()` + post-resume
+  command. Uses `oven/bun:slim` base with a `runCmd` that writes
+  `/etc/greeting`, then verifies it after sandbox creation.
+- `test/e2e/ts/package.json` — extended test script to include the
+  new test file.
+- `internal/template/idgen.go` — fixed: `base32.StdEncoding` produces
+  uppercase letters, but Docker requires lowercase repository names.
+  Added `strings.ToLower()`.
+- `internal/agent/agent.go`, `internal/agent/upstream/ready.go`,
+  `internal/sandbox/manager.go` + test stubs — fixed: `WaitReady`
+  now accepts and forwards the envd access token. Without it, envd
+  returned 401 on all process RPCs after `InitAgent`.
+- `internal/template/builder/translate.go` + `translate_test.go` —
+  fixed: the envd injection tail now includes an idempotent
+  `RUN useradd` step so the `user` account envd requires exists in
+  every generated template image, not just base-image derivatives.
+- Acceptance: `make test-e2e-ts` passes all 7 tests (6 Phase 1 +
+  1 Phase 3) in ~3 s. `go test ./...` all green.
 
 ### 2026-04-15 — complete task 13 (autoPause lifecycle on timeout)
 
