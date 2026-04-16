@@ -22,16 +22,19 @@ func translateFixture(t *testing.T, in Input) string {
 	return out.Dockerfile
 }
 
+func userPreamble() string {
+	return "RUN id -u user >/dev/null 2>&1 || (useradd -m -s /bin/bash user && echo 'user ALL=(ALL:ALL) NOPASSWD:ALL' >> /etc/sudoers && chmod 755 /home/user)\n"
+}
+
 func envdTail() string {
-	return "RUN id -u user >/dev/null 2>&1 || (useradd -m -s /bin/bash user && echo 'user ALL=(ALL:ALL) NOPASSWD:ALL' >> /etc/sudoers && chmod 755 /home/user)\n" +
-		"COPY --from=edvabe/envd-source:latest /usr/local/bin/envd /usr/local/bin/envd\n" +
+	return "COPY --from=edvabe/envd-source:latest /usr/local/bin/envd /usr/local/bin/envd\n" +
 		"COPY --from=edvabe/envd-source:latest /usr/local/bin/edvabe-init /usr/local/bin/edvabe-init\n" +
 		"CMD [\"/usr/local/bin/edvabe-init\"]\n"
 }
 
 func TestTranslateFromImageOnly(t *testing.T) {
 	got := translateFixture(t, Input{FromImage: "oven/bun:slim"})
-	want := "FROM oven/bun:slim\n" + envdTail()
+	want := "FROM oven/bun:slim\n" + userPreamble() + envdTail()
 	if got != want {
 		t.Fatalf("mismatch:\nwant:\n%s\ngot:\n%s", want, got)
 	}
@@ -39,7 +42,7 @@ func TestTranslateFromImageOnly(t *testing.T) {
 
 func TestTranslateFromTemplate(t *testing.T) {
 	got := translateFixture(t, Input{FromTemplateImage: "edvabe/user-tpl_abc:latest"})
-	want := "FROM edvabe/user-tpl_abc:latest\n" + envdTail()
+	want := "FROM edvabe/user-tpl_abc:latest\n" + userPreamble() + envdTail()
 	if got != want {
 		t.Fatalf("mismatch:\ngot:\n%s", got)
 	}
@@ -64,7 +67,7 @@ func TestTranslateRunStep(t *testing.T) {
 			{Type: "RUN", Args: []string{"echo hello"}},
 		},
 	})
-	want := "FROM debian:latest\nRUN echo hello\n" + envdTail()
+	want := "FROM debian:latest\n" + userPreamble() + "RUN echo hello\n" + envdTail()
 	if got != want {
 		t.Fatalf("mismatch:\n%s", got)
 	}
@@ -80,6 +83,7 @@ func TestTranslateRunWithUserSandwich(t *testing.T) {
 		},
 	})
 	want := "FROM debian:latest\n" +
+		userPreamble() +
 		"USER user\n" +
 		"USER root\n" +
 		"RUN apt-get update && apt-get install -y curl\n" +
@@ -248,7 +252,7 @@ func TestTranslateForceEmitsCacheBust(t *testing.T) {
 	}
 	// Stripping the cache bust must give us the deterministic output.
 	stripped := cacheBustLine.ReplaceAllString(got, "")
-	want := "FROM alpine:latest\nRUN echo once\n" + envdTail()
+	want := "FROM alpine:latest\n" + userPreamble() + "RUN echo once\n" + envdTail()
 	if stripped != want {
 		t.Fatalf("post-strip mismatch:\nwant:\n%s\ngot:\n%s", want, stripped)
 	}

@@ -102,6 +102,17 @@ func Translate(in Input) (*Output, error) {
 	df.WriteString(base)
 	df.WriteByte('\n')
 
+	// Ensure the "user" account exists early — envd refuses to run
+	// processes if defaultUser is missing, and build steps (e.g.
+	// chown user:user) may reference it. Placed right after FROM so
+	// it's available before any user steps. Idempotent — `id -u user`
+	// short-circuits if the account already exists. Passwordless sudo
+	// matches what the E2B base image provides.
+	df.WriteString("RUN id -u user >/dev/null 2>&1 || " +
+		"(useradd -m -s /bin/bash user && " +
+		"echo 'user ALL=(ALL:ALL) NOPASSWD:ALL' >> /etc/sudoers && " +
+		"chmod 755 /home/user)\n")
+
 	// currentUser is the Dockerfile's persistent USER context. It
 	// defaults to root for a fresh FROM — that matches Docker's own
 	// default when the base image does not set USER. RUN steps that
@@ -203,15 +214,8 @@ func Translate(in Input) (*Output, error) {
 		}
 	}
 
-	// Envd injection tail. Ensures the "user" account exists (envd
-	// refuses to run processes if defaultUser is missing), copies envd
-	// + edvabe-init from the scratch envd-source image, and rewires CMD
-	// to the wrapper. The useradd is idempotent — `id -u user` short-
-	// circuits if the account already exists (e.g. base-image builds).
-	df.WriteString("RUN id -u user >/dev/null 2>&1 || " +
-		"(useradd -m -s /bin/bash user && " +
-		"echo 'user ALL=(ALL:ALL) NOPASSWD:ALL' >> /etc/sudoers && " +
-		"chmod 755 /home/user)\n")
+	// Envd injection tail. Copies envd + edvabe-init from the scratch
+	// envd-source image and rewires CMD to the wrapper.
 	fmt.Fprintf(&df, "COPY --from=%s /usr/local/bin/envd /usr/local/bin/envd\n", EnvdSourceImage)
 	fmt.Fprintf(&df, "COPY --from=%s /usr/local/bin/edvabe-init %s\n", EnvdSourceImage, DefaultEnvdInitPath)
 	fmt.Fprintf(&df, "CMD [%q]\n", DefaultEnvdInitPath)
