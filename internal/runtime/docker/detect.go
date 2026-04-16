@@ -9,15 +9,20 @@ import (
 	"github.com/moby/moby/client"
 )
 
-// containerIDPattern matches a 64-char lower-hex Docker container ID.
-// Covers cgroup v1 (`/docker/<id>`), cgroup v2 systemd
-// (`/system.slice/docker-<id>.scope`), Compose (`/docker/<id>`) and
-// mountinfo paths (`/var/lib/docker/containers/<id>/...`).
-var containerIDPattern = regexp.MustCompile(`[0-9a-f]{64}`)
+// cgroupContainerIDPattern matches a 64-char lower-hex Docker container
+// ID in /proc/self/cgroup. Covers cgroup v1 (`/docker/<id>`) and cgroup
+// v2 systemd scopes (`/system.slice/docker-<id>.scope`). With cgroup v2
+// + private cgroup namespace (modern Docker default) the cgroup path is
+// just `0::/` and this returns no match — mountinfo is the fallback.
+var cgroupContainerIDPattern = regexp.MustCompile(`[0-9a-f]{64}`)
 
-func parseContainerID(contents string) string {
-	return containerIDPattern.FindString(contents)
-}
+// mountinfoContainerIDPattern captures the container ID from a
+// `/containers/<id>/` path in /proc/self/mountinfo (typically the
+// bind-mounted `/etc/hostname`, `/etc/resolv.conf`, etc. from the
+// host's `/var/lib/docker/containers/<id>/`). Must be anchored to
+// `/containers/` — the file also contains overlay2 snapshot IDs
+// (`/overlay2/<64-hex>/`) that would otherwise false-match.
+var mountinfoContainerIDPattern = regexp.MustCompile(`/containers/([0-9a-f]{64})`)
 
 // detectOwnContainerID returns the ID of the container the current
 // process runs in, or "" when not running in a recognized container.
@@ -25,13 +30,14 @@ func parseContainerID(contents string) string {
 // don't expose the ID through /proc (some Podman rootless / k8s
 // setups) — callers fall back to default behavior.
 func detectOwnContainerID() string {
-	for _, path := range []string{"/proc/self/cgroup", "/proc/self/mountinfo"} {
-		data, err := os.ReadFile(path)
-		if err != nil {
-			continue
-		}
-		if id := parseContainerID(string(data)); id != "" {
+	if data, err := os.ReadFile("/proc/self/cgroup"); err == nil {
+		if id := cgroupContainerIDPattern.FindString(string(data)); id != "" {
 			return id
+		}
+	}
+	if data, err := os.ReadFile("/proc/self/mountinfo"); err == nil {
+		if m := mountinfoContainerIDPattern.FindStringSubmatch(string(data)); len(m) == 2 {
+			return m[1]
 		}
 	}
 	return ""
