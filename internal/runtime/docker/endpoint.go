@@ -28,7 +28,7 @@ func (r *Runtime) AgentEndpoint(sandboxID string) (host string, port int, err er
 	if err != nil {
 		return "", 0, fmt.Errorf("docker runtime: inspect %q: %w", sandboxID, err)
 	}
-	ip, err := extractBridgeIP(inspect.Container)
+	ip, err := extractBridgeIP(inspect.Container, r.network)
 	if err != nil {
 		return "", 0, fmt.Errorf("docker runtime: resolve bridge IP for %q: %w", sandboxID, err)
 	}
@@ -36,12 +36,17 @@ func (r *Runtime) AgentEndpoint(sandboxID string) (host string, port int, err er
 }
 
 // extractBridgeIP returns the first usable IPv4 address from the
-// container's network settings. Prefers the default "bridge" network,
-// falls back to any other attached network with a valid address.
-func extractBridgeIP(inspect container.InspectResponse) (string, error) {
+// container's network settings. Checks preferNetwork first (when non-empty),
+// then the default "bridge" network, then any other attached network.
+func extractBridgeIP(inspect container.InspectResponse, preferNetwork string) (string, error) {
 	settings := inspect.NetworkSettings
 	if settings == nil {
 		return "", fmt.Errorf("container has no network settings")
+	}
+	if preferNetwork != "" {
+		if net, ok := settings.Networks[preferNetwork]; ok && net != nil && net.IPAddress.IsValid() {
+			return net.IPAddress.String(), nil
+		}
 	}
 	if bridge, ok := settings.Networks["bridge"]; ok && bridge != nil && bridge.IPAddress.IsValid() {
 		return bridge.IPAddress.String(), nil

@@ -79,10 +79,17 @@ func serveCmd(args []string) {
 	fs := flag.NewFlagSet("serve", flag.ExitOnError)
 	port := fs.Int("port", 3000, "HTTP port to listen on")
 	socket := fs.String("docker-socket", "", "Path to Docker socket (auto-detected if empty)")
+	dockerNetwork := fs.String("docker-network", "", "Docker network to attach sandbox containers to (required when edvabe runs inside Docker Compose)")
 	_ = fs.Parse(args)
 	if *socket != "" {
 		if err := os.Setenv("DOCKER_HOST", "unix://"+*socket); err != nil {
 			fmt.Fprintf(os.Stderr, "serve: set DOCKER_HOST: %v\n", err)
+			os.Exit(1)
+		}
+	}
+	if *dockerNetwork != "" {
+		if err := os.Setenv("EDVABE_DOCKER_NETWORK", *dockerNetwork); err != nil {
+			fmt.Fprintf(os.Stderr, "serve: set EDVABE_DOCKER_NETWORK: %v\n", err)
 			os.Exit(1)
 		}
 	}
@@ -93,6 +100,9 @@ func serveCmd(args []string) {
 		os.Exit(1)
 	}
 	defer func() { _ = rt.Close() }()
+	if net := rt.Network(); net != "" {
+		log.Printf("sandbox docker network: %s", net)
+	}
 
 	ap := upstream.New()
 	if err := ap.EnsureImage(context.Background(), rt, sandbox.DefaultImage); err != nil {

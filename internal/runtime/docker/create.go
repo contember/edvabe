@@ -52,6 +52,9 @@ func (r *Runtime) Create(ctx context.Context, req runtime.CreateRequest) (*runti
 		Labels: labels,
 	}
 	hostCfg := &container.HostConfig{Mounts: mounts}
+	if r.network != "" {
+		hostCfg.NetworkMode = container.NetworkMode(r.network)
+	}
 
 	created, err := r.cli.ContainerCreate(ctx, client.ContainerCreateOptions{
 		Config:     cfg,
@@ -74,7 +77,7 @@ func (r *Runtime) Create(ctx context.Context, req runtime.CreateRequest) (*runti
 		return nil, fmt.Errorf("docker runtime: container inspect %q: %w", req.SandboxID, err)
 	}
 
-	host, err := extractBridgeIP(inspect.Container)
+	host, err := extractBridgeIP(inspect.Container, r.network)
 	if err != nil {
 		r.forceRemove(ctx, containerID)
 		return nil, fmt.Errorf("docker runtime: resolve bridge IP for %q: %w", req.SandboxID, err)

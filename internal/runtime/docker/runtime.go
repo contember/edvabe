@@ -39,8 +39,9 @@ const (
 //
 // The zero value is not usable — construct with New.
 type Runtime struct {
-	cli  *client.Client
-	host string
+	cli     *client.Client
+	host    string
+	network string // Docker network sandboxes are attached to; empty = default bridge
 
 	mu        sync.RWMutex
 	endpoints map[string]endpoint
@@ -55,6 +56,16 @@ type endpoint struct {
 // via DOCKER_HOST or a list of well-known paths (Docker Desktop, Colima,
 // OrbStack, Podman). Negotiates the Docker API version on first call so
 // the client works across daemon versions.
+//
+// The Docker network sandbox containers are attached to is resolved in
+// this order:
+//  1. EDVABE_DOCKER_NETWORK env var (or --docker-network flag) — explicit
+//  2. Auto-detected from edvabe's own container's networks when edvabe
+//     runs inside Docker / Compose — zero-config for the common case
+//  3. Default Docker `bridge` network
+//
+// (2) makes Docker Compose deployments work without the user having to
+// look up and configure the compose network name.
 func New() (*Runtime, error) {
 	host, err := DiscoverHost()
 	if err != nil {
@@ -67,12 +78,21 @@ func New() (*Runtime, error) {
 	if err != nil {
 		return nil, fmt.Errorf("docker runtime: new client: %w", err)
 	}
+	network := os.Getenv("EDVABE_DOCKER_NETWORK")
+	if network == "" {
+		network = detectOwnNetwork(cli)
+	}
 	return &Runtime{
 		cli:       cli,
 		host:      host,
+		network:   network,
 		endpoints: make(map[string]endpoint),
 	}, nil
 }
+
+// Network reports the Docker network name sandbox containers are
+// attached to ("" means default bridge).
+func (r *Runtime) Network() string { return r.network }
 
 // Name is "docker".
 func (r *Runtime) Name() string { return "docker" }
