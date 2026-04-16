@@ -203,10 +203,15 @@ func Translate(in Input) (*Output, error) {
 		}
 	}
 
-	// Envd injection tail. Copies the envd binary and the edvabe-init
-	// wrapper out of the scratch envd-source image and rewires CMD to
-	// the wrapper. The wrapper launches envd and the user's startCmd
-	// side-by-side — see assets/edvabe-init.sh for the script itself.
+	// Envd injection tail. Ensures the "user" account exists (envd
+	// refuses to run processes if defaultUser is missing), copies envd
+	// + edvabe-init from the scratch envd-source image, and rewires CMD
+	// to the wrapper. The useradd is idempotent — `id -u user` short-
+	// circuits if the account already exists (e.g. base-image builds).
+	df.WriteString("RUN id -u user >/dev/null 2>&1 || " +
+		"(useradd -m -s /bin/bash user && " +
+		"echo 'user ALL=(ALL:ALL) NOPASSWD:ALL' >> /etc/sudoers && " +
+		"chmod 755 /home/user)\n")
 	fmt.Fprintf(&df, "COPY --from=%s /usr/local/bin/envd /usr/local/bin/envd\n", EnvdSourceImage)
 	fmt.Fprintf(&df, "COPY --from=%s /usr/local/bin/edvabe-init %s\n", EnvdSourceImage, DefaultEnvdInitPath)
 	fmt.Fprintf(&df, "CMD [%q]\n", DefaultEnvdInitPath)

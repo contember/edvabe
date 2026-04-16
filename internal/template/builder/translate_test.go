@@ -23,7 +23,8 @@ func translateFixture(t *testing.T, in Input) string {
 }
 
 func envdTail() string {
-	return "COPY --from=edvabe/envd-source:latest /usr/local/bin/envd /usr/local/bin/envd\n" +
+	return "RUN id -u user >/dev/null 2>&1 || (useradd -m -s /bin/bash user && echo 'user ALL=(ALL:ALL) NOPASSWD:ALL' >> /etc/sudoers && chmod 755 /home/user)\n" +
+		"COPY --from=edvabe/envd-source:latest /usr/local/bin/envd /usr/local/bin/envd\n" +
 		"COPY --from=edvabe/envd-source:latest /usr/local/bin/edvabe-init /usr/local/bin/edvabe-init\n" +
 		"CMD [\"/usr/local/bin/edvabe-init\"]\n"
 }
