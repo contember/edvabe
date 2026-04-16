@@ -217,7 +217,7 @@ Legend: `[ ]` not started · `[~]` in progress · `[x]` done
       timeout, kill-on-timeout, default-is-kill, pause-failure
       fallback) + 3 new handler tests (autoPause shortcut, explicit
       lifecycle, default kill). Full `go test -race ./...` green.
-- [ ] **Task 14 — TypeScript template-build E2E**
+- [~] **Task 14 — TypeScript template-build E2E**
 - [ ] **Task 15 — Webmaster chrome template acceptance**
 
 ## Phase 1 tasks
@@ -344,6 +344,9 @@ Phase 1 is complete.
 
 Newest first. Keep entries tight. Reference commit hashes so future
 agents can `git show` the actual changes.
+
+### 2026-04-16 — claim task 14 (TypeScript template-build E2E)
+Agent: Claude Opus 4.6 (1M context)
 
 ### 2026-04-15 — complete task 13 (autoPause lifecycle on timeout)
 
