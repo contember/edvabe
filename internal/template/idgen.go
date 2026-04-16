@@ -3,6 +3,7 @@ package template
 import (
 	"crypto/rand"
 	"encoding/base32"
+	"strings"
 )
 
 // templateIDEncoding matches the style of internal/sandbox/idgen.go so
@@ -21,5 +22,5 @@ func NewBuildID() string { return "bld_" + randString(10) }
 func randString(nbytes int) string {
 	b := make([]byte, nbytes)
 	_, _ = rand.Read(b)
-	return templateIDEncoding.EncodeToString(b)
+	return strings.ToLower(templateIDEncoding.EncodeToString(b))
 }
