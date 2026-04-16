@@ -1,0 +1,121 @@
+# syntax=docker/dockerfile:1.5
+#
+# edvabe/code-interpreter — upstream e2b code-interpreter template
+# baked into a single Docker image with envd and edvabe-init.
+#
+# The image ships Jupyter Server (port 8888) + a FastAPI overlay
+# (port 49999) that the @e2b/code-interpreter SDK talks to, plus
+# envd (port 49983) for the standard sandbox data plane.
+#
+# Build args:
+#   ENVD_SHA               — pinned e2b-dev/infra commit for envd
+#   CODE_INTERPRETER_SHA   — pinned e2b-dev/code-interpreter commit
+
+# ── Stage 1: build envd from source (shared with Dockerfile.base) ────
+
+FROM golang:1.25.4-bookworm AS envd-builder
+
+ARG ENVD_SHA
+RUN test -n "${ENVD_SHA}" || (echo "ENVD_SHA build-arg is required" && exit 1)
+
+RUN git clone https://github.com/e2b-dev/infra.git /src \
+    && cd /src \
+    && git checkout "${ENVD_SHA}" \
+    && rm -f go.work go.work.sum
+
+WORKDIR /src/packages/envd
+RUN CGO_ENABLED=0 GOOS=linux go build \
+    -trimpath \
+    -ldflags="-s -w -X=main.commitSHA=${ENVD_SHA}" \
+    -o /envd .
+
+# ── Stage 2: clone code-interpreter source ───────────────────────────
+
+FROM alpine:3.21 AS ci-source
+
+ARG CODE_INTERPRETER_SHA
+RUN test -n "${CODE_INTERPRETER_SHA}" || (echo "CODE_INTERPRETER_SHA build-arg is required" && exit 1)
+
+RUN apk add --no-cache git \
+    && git clone https://github.com/e2b-dev/code-interpreter.git /ci \
+    && cd /ci \
+    && git checkout "${CODE_INTERPRETER_SHA}"
+
+# ── Stage 3: final image ────────────────────────────────────────────
+
+FROM python:3.13
+
+ARG DEBIAN_FRONTEND=noninteractive
+
+# System packages (matches upstream template.py apt_install list)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        build-essential \
+        curl \
+        git \
+        util-linux \
+        jq \
+        sudo \
+        fonts-noto-cjk \
+        ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+# Node.js 20.x (matches upstream template.py)
+RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+    && apt-get install -y --no-install-recommends nodejs \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /root
+
+# ── Python data-science packages ─────────────────────────────────────
+
+COPY --from=ci-source /ci/template/requirements.txt /tmp/requirements.txt
+RUN pip install --no-cache-dir -r /tmp/requirements.txt && rm /tmp/requirements.txt
+
+# ── Jupyter kernels ──────────────────────────────────────────────────
+
+# Python kernel
+RUN ipython kernel install --name 'python3' --user
+
+# JavaScript kernel (ijavascript)
+RUN npm install --unsafe-perm -g git+https://github.com/e2b-dev/ijavascript.git \
+    && ijsinstall --install=global
+
+# ── Code interpreter FastAPI server (runs in its own venv) ───────────
+
+COPY --from=ci-source /ci/template/server /root/.server
+RUN python -m venv /root/.server/.venv \
+    && /root/.server/.venv/bin/pip install --no-cache-dir -r /root/.server/requirements.txt
+
+# ── Configuration files ──────────────────────────────────────────────
+
+COPY --from=ci-source /ci/template/matplotlibrc             /root/.config/matplotlib/.matplotlibrc
+COPY --from=ci-source /ci/template/jupyter-healthcheck.sh   /root/.jupyter/jupyter-healthcheck.sh
+RUN chmod +x /root/.jupyter/jupyter-healthcheck.sh
+COPY --from=ci-source /ci/template/jupyter_server_config.py /root/.jupyter/
+RUN mkdir -p /root/.ipython/profile_default/startup
+COPY --from=ci-source /ci/template/ipython_kernel_config.py /root/.ipython/profile_default/
+COPY --from=ci-source /ci/template/startup_scripts/         /root/.ipython/profile_default/startup/
+COPY --from=ci-source /ci/template/start-up.sh              /root/.jupyter/start-up.sh
+RUN chmod +x /root/.jupyter/start-up.sh
+
+# ── user account (matches upstream is_docker=True path) ──────────────
+
+RUN useradd -m -s /bin/bash user \
+    && echo "user ALL=(ALL:ALL) NOPASSWD:ALL" >> /etc/sudoers \
+    && chmod 755 /home/user
+
+# ── envd + edvabe-init ───────────────────────────────────────────────
+
+COPY --from=envd-builder --chmod=0755 /envd /usr/local/bin/envd
+
+# edvabe-init.sh is passed in via the build context (same file as
+# assets/edvabe-init.sh, shipped alongside this Dockerfile).
+COPY --chmod=0755 edvabe-init.sh /usr/local/bin/edvabe-init
+
+# envd needs root to manage processes; edvabe-init launches startCmd
+# which switches to user via sudo --preserve-env.
+USER root
+WORKDIR /home/user
+
+EXPOSE 49983 49999 8888
+CMD ["/usr/local/bin/edvabe-init"]

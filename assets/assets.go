@@ -12,5 +12,8 @@ var DockerfileBase []byte
 //go:embed Dockerfile.envd-source
 var DockerfileEnvdSource []byte
 
+//go:embed Dockerfile.code-interpreter
+var DockerfileCodeInterpreter []byte
+
 //go:embed edvabe-init.sh
 var EdvabeInitSh []byte
