@@ -180,7 +180,7 @@ func serveCmd(args []string) {
 		Builds:     buildMgr,
 		FileCache:  fileCache,
 		FileSigner: fileSigner,
-		PublicBase: fmt.Sprintf("http://localhost:%d", *port),
+		PublicBase: os.Getenv("EDVABE_PUBLIC_BASE"),
 	})
 	proxyHandler := api.NewProxy(mgr, rt)
 	dashboardHandler := dashboard.NewHandler(dashboard.HandlerOptions{
