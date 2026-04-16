@@ -42,6 +42,15 @@ type LogSink interface {
 	Append(LogEntry)
 }
 
+// BuildResult is passed to ManagerOptions.OnComplete after a build
+// finishes (successfully or not).
+type BuildResult struct {
+	TemplateID string
+	BuildID    string
+	Status     template.BuildStatus
+	Reason     string
+}
+
 // ManagerOptions configures NewManager.
 type ManagerOptions struct {
 	Executor Executor
@@ -53,6 +62,9 @@ type ManagerOptions struct {
 	LogCapacity int
 	// Clock is injected for deterministic timestamps in tests.
 	Clock func() time.Time
+	// OnComplete is called after a build finishes. Use it to persist
+	// the build status back to the template store.
+	OnComplete func(BuildResult)
 }
 
 // Manager drives the async template build lifecycle: enqueue →
@@ -64,6 +76,7 @@ type Manager struct {
 	resultImageFormat string
 	logCapacity       int
 	clock             func() time.Time
+	onComplete        func(BuildResult)
 
 	mu     sync.RWMutex
 	builds map[string]*runningBuild
@@ -101,6 +114,7 @@ func NewManager(opts ManagerOptions) (*Manager, error) {
 		resultImageFormat: opts.ResultImageFormat,
 		logCapacity:       opts.LogCapacity,
 		clock:             opts.Clock,
+		onComplete:        opts.OnComplete,
 		builds:            make(map[string]*runningBuild),
 	}, nil
 }
@@ -175,6 +189,14 @@ func (m *Manager) run(ctx context.Context, rb *runningBuild, req EnqueueSpec) {
 			Level:     "error",
 			Message:   fmt.Sprintf("Build failed: %s", err.Error()),
 		})
+		if m.onComplete != nil {
+			m.onComplete(BuildResult{
+				TemplateID: rb.templateID,
+				BuildID:    rb.buildID,
+				Status:     template.BuildStatusError,
+				Reason:     err.Error(),
+			})
+		}
 		return
 	}
 	rb.status = template.BuildStatusReady
@@ -183,6 +205,13 @@ func (m *Manager) run(ctx context.Context, rb *runningBuild, req EnqueueSpec) {
 		Level:     "info",
 		Message:   fmt.Sprintf("Build complete: %s", rb.resultTag),
 	})
+	if m.onComplete != nil {
+		m.onComplete(BuildResult{
+			TemplateID: rb.templateID,
+			BuildID:    rb.buildID,
+			Status:     template.BuildStatusReady,
+		})
+	}
 }
 
 // buildSink adapts a runningBuild so the Executor can stream log

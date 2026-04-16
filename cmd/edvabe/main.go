@@ -166,6 +166,14 @@ func serveCmd(args []string) {
 			Cache:     fileCache,
 			BuildRoot: buildScratchDir(),
 		},
+		OnComplete: func(result builder.BuildResult) {
+			now := time.Now()
+			_ = templateStore.UpdateBuild(result.TemplateID, result.BuildID, func(b *template.Build) {
+				b.Status = result.Status
+				b.Reason = result.Reason
+				b.FinishedAt = &now
+			})
+		},
 	})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "serve: init build manager: %v\n", err)
