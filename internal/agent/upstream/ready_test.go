@@ -44,7 +44,7 @@ func TestWaitReadyEmptyCmdIsFastPath(t *testing.T) {
 	p := New()
 	// No server — an accidental HTTP call would time out. WaitReady
 	// must return immediately without touching the network.
-	if err := p.WaitReady(context.Background(), "http://unreachable.invalid", ""); err != nil {
+	if err := p.WaitReady(context.Background(), "http://unreachable.invalid", "", ""); err != nil {
 		t.Fatalf("WaitReady(\"\") = %v", err)
 	}
 }
@@ -67,7 +67,7 @@ func TestWaitReadySucceedsOnFirstExit0(t *testing.T) {
 	defer srv.Close()
 
 	p := New()
-	if err := p.WaitReady(context.Background(), srv.URL, "true"); err != nil {
+	if err := p.WaitReady(context.Background(), srv.URL, "true", ""); err != nil {
 		t.Fatalf("WaitReady: %v", err)
 	}
 	if got := atomic.LoadInt32(&calls); got != 1 {
@@ -97,7 +97,7 @@ func TestWaitReadyRetriesUntilExit0(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	if err := p.WaitReady(ctx, srv.URL, "flaky-check"); err != nil {
+	if err := p.WaitReady(ctx, srv.URL, "flaky-check", ""); err != nil {
 		t.Fatalf("WaitReady: %v", err)
 	}
 	if got := atomic.LoadInt32(&calls); got < 3 {
@@ -117,7 +117,7 @@ func TestWaitReadyFailsOnContextExpiry(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()
 
-	err := p.WaitReady(ctx, srv.URL, "false")
+	err := p.WaitReady(ctx, srv.URL, "false", "")
 	if err == nil {
 		t.Fatalf("expected error on context expiry")
 	}

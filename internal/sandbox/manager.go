@@ -202,7 +202,7 @@ func (m *Manager) Create(ctx context.Context, opts CreateOptions) (*Sandbox, err
 	// empty string and never touches envd.
 	if resolution.ReadyCmd != "" {
 		readyCtx, cancel := context.WithTimeout(ctx, opts.Timeout)
-		err := m.ap.WaitReady(readyCtx, endpoint, resolution.ReadyCmd)
+		err := m.ap.WaitReady(readyCtx, endpoint, resolution.ReadyCmd, envdToken)
 		cancel()
 		if err != nil {
 			_ = m.rt.Destroy(ctx, id)

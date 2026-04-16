@@ -65,7 +65,7 @@ func (s *stubAgent) Ping(_ context.Context, _ string) error {
 	return nil
 }
 
-func (s *stubAgent) WaitReady(_ context.Context, _ string, cmd string) error {
+func (s *stubAgent) WaitReady(_ context.Context, _, cmd, _ string) error {
 	s.readyCalls++
 	s.readyCmds = append(s.readyCmds, cmd)
 	return s.readyErr

@@ -35,14 +35,14 @@ const readyProbeUser = "user"
 // Errors are retried silently; only the final failure (after ctx
 // expires) is surfaced to the caller, and it carries the most recent
 // cause so the sandbox manager can log something actionable.
-func (p *UpstreamEnvdProvider) WaitReady(ctx context.Context, endpoint, cmd string) error {
+func (p *UpstreamEnvdProvider) WaitReady(ctx context.Context, endpoint, cmd, accessToken string) error {
 	if cmd == "" {
 		return nil
 	}
 
 	var lastErr error
 	for {
-		exitCode, err := p.runReadyProbe(ctx, endpoint, cmd)
+		exitCode, err := p.runReadyProbe(ctx, endpoint, cmd, accessToken)
 		if err == nil && exitCode == 0 {
 			return nil
 		}
@@ -71,7 +71,7 @@ func (p *UpstreamEnvdProvider) WaitReady(ctx context.Context, endpoint, cmd stri
 // returned event stream. The command is executed through `sh -c` so
 // readyCmd can be a normal shell expression (matches the edvabe-init
 // contract — start/ready commands are shell strings).
-func (p *UpstreamEnvdProvider) runReadyProbe(ctx context.Context, endpoint, cmd string) (int, error) {
+func (p *UpstreamEnvdProvider) runReadyProbe(ctx context.Context, endpoint, cmd, accessToken string) (int, error) {
 	body, err := json.Marshal(processStartRequest{
 		Process: processConfig{
 			Cmd:  "/bin/sh",
@@ -100,6 +100,9 @@ func (p *UpstreamEnvdProvider) runReadyProbe(ctx context.Context, endpoint, cmd 
 	}
 	req.Header.Set("Content-Type", "application/connect+json")
 	req.Header.Set("Connect-Protocol-Version", "1")
+	if accessToken != "" {
+		req.Header.Set("X-Access-Token", accessToken)
+	}
 
 	resp, err := p.httpClient.Do(req)
 	if err != nil {

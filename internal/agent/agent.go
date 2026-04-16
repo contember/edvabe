@@ -53,7 +53,8 @@ type AgentProvider interface {
 	// must honor ctx deadline/cancellation and back off between attempts.
 	// When cmd is empty, WaitReady returns immediately — the Phase 1
 	// fast path for templates that don't set a readyCmd.
-	WaitReady(ctx context.Context, endpoint, cmd string) error
+	// accessToken is the envd access token set during InitAgent.
+	WaitReady(ctx context.Context, endpoint, cmd, accessToken string) error
 }
 
 // InitConfig is the payload delivered to the agent's /init endpoint.
