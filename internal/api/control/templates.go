@@ -107,11 +107,20 @@ func createTemplate(store templateStore, w http.ResponseWriter, r *http.Request)
 	})
 	if err != nil {
 		if errors.Is(err, template.ErrAliasTaken) {
-			api.WriteError(w, http.StatusConflict, "template name already in use")
+			// Reuse the existing template — the SDK calls POST
+			// /v3/templates on every `Template.build()` invocation
+			// and expects to get back the same template if the alias
+			// already exists (idempotent create).
+			existing, resolveErr := store.ResolveAlias(req.Name)
+			if resolveErr != nil {
+				api.WriteError(w, http.StatusConflict, "template name already in use")
+				return
+			}
+			tpl = existing
+		} else {
+			api.WriteError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
-		api.WriteError(w, http.StatusInternalServerError, err.Error())
-		return
 	}
 
 	// Pre-mint a build ID so the SDK can immediately start uploading
