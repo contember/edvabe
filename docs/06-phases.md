@@ -1,25 +1,6 @@
-# 06 — Delivery phases
+# 06 — Feature scope
 
-Five phases plus one optional follow-up. Each phase is itself shippable —
-useful to at least one category of user — before the next phase starts.
-
-The envd-passthrough approach collapses what used to be two phases into
-Phase 1. Because edvabe does not reimplement filesystem/process/PTY/watch
-operations (envd does), they all work the moment the reverse proxy works.
-That's the whole reason this decomposition is shorter than earlier drafts.
-
-### Phase ordering is not carved in stone
-
-The numbering below reflects the order features were originally sized in,
-not a hard commitment. If a specific downstream consumer drives the
-roadmap, it can shift. Concretely: the internal Contember **webmaster**
-project (see v0.1.0 session log, 2026-04-15) needs **pause/resume +
-custom templates** (Phase 3) but does **not** need the code interpreter
-overlay (Phase 2) — it imports `Sandbox` from `@e2b/code-interpreter`
-purely for the re-export and never calls `runCode`. If webmaster becomes
-the driving consumer, Phase 3 should come before Phase 2 or the two
-should be split (e.g. "Phase 2a — pause" before code interpreter). Keep
-this in mind when picking up the next task after Phase 1.
+Phases 1–4 are shipped. Phase 5+ is optional and built on demand.
 
 ---
 
@@ -157,17 +138,6 @@ sbx.kill()
 - Second-run `edvabe serve` starts in under 1 second.
 - First `Sandbox.create` after warm start completes in under 2 seconds.
 
-### Expected LOC
-
-~1500–2500 lines of Go (control plane handlers + runtime + agent provider
-+ manager + proxy + CLI), plus ~100 lines of embedded Dockerfile and asset
-shims.
-
-This is bigger than the original Phase 1 estimate because we are shipping
-what used to be Phase 1 + Phase 2 together. But it is smaller than the
-combined estimate because edvabe itself does not reimplement the data
-plane — envd does.
-
 ---
 
 ## Phase 2 — "Code interpreter"
@@ -228,11 +198,6 @@ sbx.kill()
 ```
 
 Plus the TypeScript equivalent.
-
-### Expected LOC
-
-~300 additional lines of Go (mostly dispatch + new image registration).
-The heavy lifting is in the Dockerfile.
 
 ---
 
@@ -509,13 +474,6 @@ edvabe from `webmaster/containers/templates/chrome/build.ts` unchanged,
 then `Sandbox.create('webmaster-sandbox-chrome')` launches a working
 Chrome sandbox. This is the acceptance bar for "Phase 3 ships".
 
-### Expected LOC
-
-~1500 additional lines of Go (bigger than the original estimate
-because of the file-cache/upload endpoint, the async builder, the
-step-translation table, and the envd injection plumbing) + a template
-builder subpackage under `internal/template/`.
-
 ---
 
 ## Phase 4 — "Full surface"
@@ -554,10 +512,6 @@ Run the upstream E2B SDK test suite (both JS and Python) against edvabe.
   endpoint tests.
 - **No crashes**: every test the SDK invokes returns a parseable response,
   even if "not implemented."
-
-### Expected LOC
-
-~1200 additional lines, mostly stubs.
 
 ---
 
@@ -614,36 +568,3 @@ Out of scope for v1 but worth keeping architecturally possible:
 - **Real egress filtering** — nftables chain per sandbox.
 - **Multi-user mode** — real auth, separate namespaces.
 
----
-
-## Cross-phase engineering
-
-These show up in every phase and should not be deferred:
-
-- **Conformance suite** in `internal/conformance/` that runs against a
-  live edvabe and asserts byte-compatible responses. Grows per phase.
-- **Reference traces** — captured HTTP request/response pairs from real
-  E2B calls, committed as golden files under `testdata/traces/`. Each
-  phase adds traces for the endpoints it covers.
-- **Error envelope consistency** — shared formatter from the start.
-- **Structured logging** with request IDs.
-- **Benchmarks**: sandbox create latency, exec throughput, upload/download
-  throughput.
-- **Pinned `envdVersion`** = `"0.5.7"` from Phase 1 so no SDK branches into
-  legacy paths.
-
-## Timeline gut-feel
-
-Solo developer, half-time:
-
-- Phase 1: 2–4 weeks (biggest phase because it includes envd-passthrough plumbing)
-- Phase 2: 1–2 weeks
-- Phase 3: 3–4 weeks
-- Phase 4: 2–3 weeks
-- **Total v1: 2–3 months half-time, 4–6 weeks full-time**
-
-Phase 5 (native agent) is open-ended and only built on demand.
-Firecracker/libkrun (Phase 6+) is another 6–8 weeks on top.
-
-The passthrough approach roughly halves the original estimate by moving
-filesystem/process/PTY/watch work out of edvabe entirely.

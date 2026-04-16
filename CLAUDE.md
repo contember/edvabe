@@ -11,17 +11,11 @@ change as work progresses.
 
 ## Where to start (for any agent entering cold)
 
-1. **[instructions.md](instructions.md)** — how to work on this project:
-   entry protocol, picking a task, commit workflow, status updates,
-   escalation. **Read this first.**
-2. **[status.md](status.md)** — current state: what's done, what's in
-   progress, what's next, known blockers. Updated by every session.
-3. **[docs/](docs/)** — architecture, API surface, Phase 1 checklist,
-   reference material. Read the specific file your task points to.
+1. **This file** — project identity, promises, golden rules, conventions.
+2. **[docs/](docs/)** — architecture, API surface, feature scope,
+   reference material. Read the specific file your task needs.
 
-A fresh agent should read the three above in order, then the specific
-docs files referenced by their task. Do NOT pre-read the whole `docs/`
-tree — it wastes context.
+Do NOT pre-read the whole `docs/` tree — it wastes context.
 
 ## What edvabe promises
 

@@ -148,32 +148,46 @@ make test-e2e-code-interpreter-ts     # code interpreter TypeScript E2E
 
 ## Architecture
 
-edvabe implements the E2B control plane in Go. The data plane
-(filesystem, process, PTY, watchers) is handled by upstream `envd`
-running inside each sandbox container and reverse-proxied by edvabe.
-This keeps edvabe small (~3000 LOC) while providing byte-exact wire
-compatibility with the SDK.
+edvabe implements the E2B **control plane** in Go — sandbox CRUD,
+template builds, pause/resume, and all the stub endpoints the SDK
+expects. The **data plane** (filesystem, process, PTY, watchers) is
+handled by upstream [envd](https://github.com/e2b-dev/infra/tree/main/packages/envd)
+running inside each sandbox container. edvabe reverse-proxies SDK
+requests to envd, giving byte-exact wire compatibility without
+reimplementing the ~6000 LOC envd protocol.
 
 ```
-SDK  ──HTTP──>  edvabe (:3000)
-                  │
-                  ├── control plane (Go handlers)
-                  │     POST /sandboxes, GET /templates, ...
-                  │
-                  └── reverse proxy ──> container (envd :49983)
-                                        filesystem, process, PTY, watch
-                                        code-interpreter (:49999)
+SDK ──HTTP──> edvabe (:3000)
+                │
+                ├─ control plane (Go)
+                │    sandboxes, templates, teams, volumes, ...
+                │
+                └─ reverse proxy ──> Docker container
+                     │                  │
+                     │                  ├─ envd (:49983)
+                     │                  │    files, process, PTY, watch
+                     │                  │
+                     │                  └─ code-interpreter (:49999)
+                     │                       Jupyter + FastAPI overlay
+                     │
+                     └─ routed by E2b-Sandbox-Id + E2b-Sandbox-Port headers
 ```
 
-See [docs/05-architecture.md](docs/05-architecture.md) for details.
+**Key design decisions:**
 
-## Documentation
+- **Templates are Docker images.** `Template.build()` translates SDK
+  step arrays into generated Dockerfiles and runs `docker build`.
+- **envd is injected** into every user template via a `COPY --from`
+  stage — user images don't need to know about envd.
+- **Pause = `docker pause`**, snapshot = `docker commit`. No live
+  memory snapshots. Documented trade-off for a local dev tool.
+- **Runtime and Agent are pluggable interfaces** behind
+  `internal/runtime/` and `internal/agent/`. Docker is the v1 backend;
+  Firecracker/libkrun could slot in later.
 
-- [CLAUDE.md](CLAUDE.md) — project brief and conventions
-- [docs/03-api-surface.md](docs/03-api-surface.md) — wire surface
-- [docs/05-architecture.md](docs/05-architecture.md) — architecture
-- [docs/06-phases.md](docs/06-phases.md) — delivery phases
-- [CHANGELOG.md](CHANGELOG.md) — release notes
+See [docs/05-architecture.md](docs/05-architecture.md) for the full
+design and [docs/03-api-surface.md](docs/03-api-surface.md) for the
+wire protocol.
 
 ## License
 
