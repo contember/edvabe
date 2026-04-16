@@ -226,8 +226,10 @@ func Translate(in Input) (*Output, error) {
 		}
 	}
 
-	// Envd injection tail. Copies envd + edvabe-init from the scratch
-	// envd-source image and rewires CMD to the wrapper.
+	// Envd injection tail. Resets to root (envd needs root to manage
+	// processes), copies envd + edvabe-init from the scratch envd-source
+	// image, and rewires CMD to the wrapper.
+	df.WriteString("USER root\n")
 	fmt.Fprintf(&df, "COPY --from=%s /usr/local/bin/envd /usr/local/bin/envd\n", EnvdSourceImage)
 	fmt.Fprintf(&df, "COPY --from=%s /usr/local/bin/edvabe-init %s\n", EnvdSourceImage, DefaultEnvdInitPath)
 	fmt.Fprintf(&df, "CMD [%q]\n", DefaultEnvdInitPath)

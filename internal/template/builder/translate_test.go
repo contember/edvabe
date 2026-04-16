@@ -27,7 +27,8 @@ func userPreamble() string {
 }
 
 func envdTail() string {
-	return "COPY --from=edvabe/envd-source:latest /usr/local/bin/envd /usr/local/bin/envd\n" +
+	return "USER root\n" +
+		"COPY --from=edvabe/envd-source:latest /usr/local/bin/envd /usr/local/bin/envd\n" +
 		"COPY --from=edvabe/envd-source:latest /usr/local/bin/edvabe-init /usr/local/bin/edvabe-init\n" +
 		"CMD [\"/usr/local/bin/edvabe-init\"]\n"
 }
@@ -105,9 +106,11 @@ func TestTranslateRunUserMatchesCurrent(t *testing.T) {
 			{Type: "RUN", Args: []string{"apt-get update", "root"}},
 		},
 	})
-	// Expect a single USER root, then RUN (no second USER).
-	if strings.Count(got, "USER root\n") != 1 {
-		t.Fatalf("expected exactly one USER root line, got:\n%s", got)
+	// Expect exactly two USER root lines: one from the explicit USER
+	// step and one from the envd tail. The RUN sandwich should NOT
+	// add a third.
+	if strings.Count(got, "USER root\n") != 2 {
+		t.Fatalf("expected exactly two USER root lines (step + envd tail), got:\n%s", got)
 	}
 }
 
