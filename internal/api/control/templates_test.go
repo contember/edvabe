@@ -92,12 +92,24 @@ func TestCreateTemplateMissingName(t *testing.T) {
 	}
 }
 
-func TestCreateTemplateConflict(t *testing.T) {
+func TestCreateTemplateDuplicateAliasReusesExisting(t *testing.T) {
 	h, _ := newTemplateTestRouter(t)
-	doJSON(t, h, http.MethodPost, "/v3/templates", map[string]any{"name": "dup"})
-	rec := doJSON(t, h, http.MethodPost, "/v3/templates", map[string]any{"name": "dup"})
-	if rec.Code != http.StatusConflict {
-		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	rec1 := doJSON(t, h, http.MethodPost, "/v3/templates", map[string]any{"name": "dup"})
+	var first templateBuildResponse
+	_ = json.NewDecoder(rec1.Body).Decode(&first)
+
+	rec2 := doJSON(t, h, http.MethodPost, "/v3/templates", map[string]any{"name": "dup"})
+	if rec2.Code != http.StatusCreated {
+		t.Fatalf("status=%d body=%s", rec2.Code, rec2.Body.String())
+	}
+	var second templateBuildResponse
+	_ = json.NewDecoder(rec2.Body).Decode(&second)
+
+	if second.TemplateID != first.TemplateID {
+		t.Fatalf("expected same template ID %q, got %q", first.TemplateID, second.TemplateID)
+	}
+	if second.BuildID == first.BuildID {
+		t.Fatal("expected different build ID for second create")
 	}
 }
 
