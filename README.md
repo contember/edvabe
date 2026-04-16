@@ -191,4 +191,4 @@ wire protocol.
 
 ## License
 
-TBD.
+[MIT](LICENSE) — Contember Limited
