@@ -228,7 +228,7 @@ Legend: `[ ]` not started · `[~]` in progress · `[x]` done
           ready probe (`ca424e4`);
       (3) custom template images lacked the `user` account envd requires
           → "invalid default user" error (`16fb3b7`).
-- [ ] **Task 15 — Webmaster chrome template acceptance**
+- [~] **Task 15 — Webmaster chrome template acceptance**
 
 ## Phase 1 tasks
 
@@ -354,6 +354,9 @@ Phase 1 is complete.
 
 Newest first. Keep entries tight. Reference commit hashes so future
 agents can `git show` the actual changes.
+
+### 2026-04-16 — claim task 15 (Webmaster chrome template acceptance)
+Agent: Claude Opus 4.6 (1M context)
 
 ### 2026-04-16 — complete task 14 (TypeScript template-build E2E)
 Agent: Claude Opus 4.6 (1M context)
