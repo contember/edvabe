@@ -227,9 +227,15 @@ func Translate(in Input) (*Output, error) {
 	}
 
 	// Envd injection tail. Resets to root (envd needs root to manage
-	// processes), copies envd + edvabe-init from the scratch envd-source
-	// image, and rewires CMD to the wrapper.
+	// processes), chowns /home/user to the `user` account (matches E2B's
+	// template builder — templates freely `makeDir('/home/user/foo')`
+	// while USER=root and the result ends up user-owned on E2B; without
+	// this step the SDK's default `user: 'user'` exec would hit perm
+	// errors on workdirs created by common template helpers), copies
+	// envd + edvabe-init from the scratch envd-source image, and rewires
+	// CMD to the wrapper.
 	df.WriteString("USER root\n")
+	df.WriteString("RUN chown -R user:user /home/user 2>/dev/null || true\n")
 	fmt.Fprintf(&df, "COPY --from=%s /usr/local/bin/envd /usr/local/bin/envd\n", EnvdSourceImage)
 	fmt.Fprintf(&df, "COPY --from=%s /usr/local/bin/edvabe-init %s\n", EnvdSourceImage, DefaultEnvdInitPath)
 	fmt.Fprintf(&df, "CMD [%q]\n", DefaultEnvdInitPath)

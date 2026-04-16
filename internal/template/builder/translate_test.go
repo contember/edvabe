@@ -28,6 +28,7 @@ func userPreamble() string {
 
 func envdTail() string {
 	return "USER root\n" +
+		"RUN chown -R user:user /home/user 2>/dev/null || true\n" +
 		"COPY --from=edvabe/envd-source:latest /usr/local/bin/envd /usr/local/bin/envd\n" +
 		"COPY --from=edvabe/envd-source:latest /usr/local/bin/edvabe-init /usr/local/bin/edvabe-init\n" +
 		"CMD [\"/usr/local/bin/edvabe-init\"]\n"
