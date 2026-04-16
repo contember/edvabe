@@ -37,6 +37,10 @@ type Options struct {
 	// EnvdSourceImage is the scratch image `edvabe build-image` produces
 	// alongside BaseImage. Defaults to upstream.EnvdSourceTag.
 	EnvdSourceImage string
+	// CodeInterpreterImage is the code-interpreter image tag. Defaults
+	// to upstream.CodeInterpreterTag. Its absence is informational, not
+	// a hard failure.
+	CodeInterpreterImage string
 }
 
 // Run executes each check in order, prints an aligned table to w, and
@@ -53,12 +57,16 @@ func Run(ctx context.Context, w io.Writer, opts Options) error {
 	if opts.EnvdSourceImage == "" {
 		opts.EnvdSourceImage = upstream.EnvdSourceTag
 	}
+	if opts.CodeInterpreterImage == "" {
+		opts.CodeInterpreterImage = upstream.CodeInterpreterTag
+	}
 
 	checks := []checkFunc{
 		checkDockerSocket,
 		checkDockerVersion,
 		checkImage(opts.BaseImage, "run `edvabe build-image`"),
 		checkImage(opts.EnvdSourceImage, "run `edvabe build-image`"),
+		checkImageOptional(opts.CodeInterpreterImage, "run `edvabe build-image --template=code-interpreter`"),
 		checkPortFree(opts.Port),
 	}
 
@@ -169,6 +177,34 @@ func checkImage(tag, hint string) checkFunc {
 				name:   name,
 				ok:     false,
 				detail: "not found — " + hint,
+			}
+		}
+		return checkResult{name: name, ok: true, detail: ""}
+	}
+}
+
+// checkImageOptional is like checkImage but a missing image is not a
+// failure — it reports OK when present and INFO when absent. The
+// code-interpreter image is optional; users only need it if they use
+// the @e2b/code-interpreter SDK.
+func checkImageOptional(tag, hint string) checkFunc {
+	return func(ctx context.Context, state *runState) checkResult {
+		name := fmt.Sprintf("%s image", tag)
+		if state.cli == nil {
+			return checkResult{name: name, ok: true, detail: "skipped: no daemon connection"}
+		}
+		ictx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		defer cancel()
+		filters := client.Filters{}.Add("reference", tag)
+		res, err := state.cli.ImageList(ictx, client.ImageListOptions{Filters: filters})
+		if err != nil {
+			return checkResult{name: name, ok: true, detail: "check failed: " + err.Error()}
+		}
+		if len(res.Items) == 0 {
+			return checkResult{
+				name:   name,
+				ok:     true,
+				detail: "not built — " + hint,
 			}
 		}
 		return checkResult{name: name, ok: true, detail: ""}

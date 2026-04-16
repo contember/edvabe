@@ -212,6 +212,8 @@ func buildImageCmd(args []string) {
 	fs := flag.NewFlagSet("build-image", flag.ExitOnError)
 	tag := fs.String("tag", "edvabe/base:latest", "local tag to apply to the upstream base image")
 	envdSourceTag := fs.String("envd-source-tag", upstream.EnvdSourceTag, "local tag for the envd-source scratch image")
+	ciTag := fs.String("code-interpreter-tag", upstream.CodeInterpreterTag, "local tag for the code-interpreter image")
+	tmpl := fs.String("template", "base", "which images to build: base, code-interpreter, or all")
 	skipEnvdSource := fs.Bool("no-envd-source", false, "skip building edvabe/envd-source")
 	// --force is accepted for compatibility with docs/task description;
 	// Docker's layer cache already makes re-runs fast so the flag is a
@@ -219,19 +221,38 @@ func buildImageCmd(args []string) {
 	// prune` or `docker rmi edvabe/base:latest` first.
 	_ = fs.Bool("force", false, "no-op; Docker's build cache handles re-runs")
 	_ = fs.Parse(args)
-	if err := upstream.EnsureBaseImage(context.Background(), *tag); err != nil {
-		fmt.Fprintf(os.Stderr, "build-image: %v\n", err)
-		os.Exit(1)
+
+	buildBase := *tmpl == "base" || *tmpl == "all"
+	buildCI := *tmpl == "code-interpreter" || *tmpl == "all"
+
+	if !buildBase && !buildCI {
+		fmt.Fprintf(os.Stderr, "build-image: unknown --template %q (use base, code-interpreter, or all)\n", *tmpl)
+		os.Exit(2)
 	}
-	fmt.Printf("built %s (envd @ %s)\n", *tag, upstream.EnvdSourceSHA)
-	if *skipEnvdSource {
-		return
+
+	if buildBase {
+		if err := upstream.EnsureBaseImage(context.Background(), *tag); err != nil {
+			fmt.Fprintf(os.Stderr, "build-image: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Printf("built %s (envd @ %s)\n", *tag, upstream.EnvdSourceSHA)
 	}
-	if err := upstream.EnsureEnvdSource(context.Background(), *envdSourceTag); err != nil {
-		fmt.Fprintf(os.Stderr, "build-image: %v\n", err)
-		os.Exit(1)
+
+	if !*skipEnvdSource {
+		if err := upstream.EnsureEnvdSource(context.Background(), *envdSourceTag); err != nil {
+			fmt.Fprintf(os.Stderr, "build-image: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Printf("built %s\n", *envdSourceTag)
 	}
-	fmt.Printf("built %s\n", *envdSourceTag)
+
+	if buildCI {
+		if err := upstream.EnsureCodeInterpreterImage(context.Background(), *ciTag); err != nil {
+			fmt.Fprintf(os.Stderr, "build-image: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Printf("built %s (code-interpreter @ %s)\n", *ciTag, upstream.CodeInterpreterRepoSHA)
+	}
 }
 
 func pullBaseCmd(args []string) {
