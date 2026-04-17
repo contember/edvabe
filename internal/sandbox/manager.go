@@ -479,6 +479,78 @@ func (m *Manager) Pause(ctx context.Context, id string) error {
 	return nil
 }
 
+// Stop forces a sandbox into the stopped (docker stop) paused substate
+// regardless of current state. Running sandboxes skip the freeze and go
+// straight to stop; frozen sandboxes are unpaused first so `docker
+// stop` can send signals to the processes; already-stopped sandboxes
+// are a no-op. Exists so dashboard / ops flows can reclaim RAM without
+// waiting for FreezeDuration.
+func (m *Manager) Stop(ctx context.Context, id string) error {
+	m.mu.Lock()
+	s, ok := m.sandboxes[id]
+	if !ok {
+		m.mu.Unlock()
+		return ErrNotFound
+	}
+	if s.State == StatePaused && s.PauseMode == PauseStopped {
+		m.mu.Unlock()
+		return nil
+	}
+	priorMode := s.PauseMode
+	m.mu.Unlock()
+
+	if priorMode == PauseFrozen {
+		if err := m.rt.Unpause(ctx, id); err != nil {
+			return fmt.Errorf("sandbox: stop %q: unpause-before-stop: %w", id, err)
+		}
+	}
+	if err := m.rt.Stop(ctx, id); err != nil {
+		return fmt.Errorf("sandbox: stop %q: %w", id, err)
+	}
+	m.mu.Lock()
+	s.State = StatePaused
+	s.PauseMode = PauseStopped
+	s.PausedAt = m.clock.Now()
+	m.mu.Unlock()
+	return nil
+}
+
+// Resume brings a paused sandbox back to running without touching its
+// TTL — unlike Connect, which also renews the deadline. Exists for
+// dashboard / ops flows that want to inspect a paused sandbox without
+// silently extending its life. No-op for already-running sandboxes.
+func (m *Manager) Resume(ctx context.Context, id string) error {
+	m.mu.Lock()
+	s, ok := m.sandboxes[id]
+	if !ok {
+		m.mu.Unlock()
+		return ErrNotFound
+	}
+	if s.State != StatePaused {
+		m.mu.Unlock()
+		return nil
+	}
+	priorMode := s.PauseMode
+	m.mu.Unlock()
+
+	switch priorMode {
+	case PauseStopped:
+		if err := m.resumeStopped(ctx, s); err != nil {
+			return fmt.Errorf("sandbox: resume %q: %w", id, err)
+		}
+	default:
+		if err := m.rt.Unpause(ctx, id); err != nil {
+			return fmt.Errorf("sandbox: resume %q: unpause: %w", id, err)
+		}
+	}
+	m.mu.Lock()
+	s.State = StateRunning
+	s.PauseMode = ""
+	s.PausedAt = time.Time{}
+	m.mu.Unlock()
+	return nil
+}
+
 // SnapshotInfo is the return shape for Snapshot — the caller needs the
 // tag to reference later and the point-in-time the snapshot was taken
 // at for audit/logging.

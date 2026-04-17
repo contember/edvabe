@@ -13,7 +13,7 @@
   --font:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
 }
 html{font-family:var(--font);font-size:14px;background:var(--bg);color:var(--text)}
-body{max-width:1200px;margin:0 auto;padding:24px 16px}
+body{max-width:1280px;margin:0 auto;padding:24px 16px}
 
 header{display:flex;align-items:baseline;gap:12px;margin-bottom:24px}
 header h1{font-size:18px;font-weight:600;letter-spacing:-.02em}
@@ -26,6 +26,8 @@ header .refresh-indicator{margin-left:auto;color:var(--text-muted);font-size:12p
 .card .value{font-size:28px;font-weight:600}
 .card .value.green{color:var(--green)}
 .card .value.yellow{color:var(--yellow)}
+.card .value.blue{color:var(--blue)}
+.card .sub{font-size:11px;color:var(--text-muted);margin-top:4px}
 
 section{margin-bottom:28px}
 section h2{font-size:14px;font-weight:600;margin-bottom:10px;color:var(--text-dim);text-transform:uppercase;letter-spacing:.04em}
@@ -51,11 +53,20 @@ tr:hover td{background:rgba(136,198,255,.04)}
 .mono{font-family:var(--font);font-size:12px}
 .id-cell{max-width:180px;overflow:hidden;text-overflow:ellipsis}
 
-.btn-delete{
+.mem{font-variant-numeric:tabular-nums;font-size:12px}
+.mem-dim{color:var(--text-muted)}
+
+.actions{display:flex;gap:4px;justify-content:flex-end}
+.btn{
   background:transparent;border:1px solid var(--border);color:var(--text-dim);
   padding:3px 10px;border-radius:6px;cursor:pointer;font-size:11px;font-family:var(--font);
   transition:all .15s;
 }
+.btn:hover{color:var(--text)}
+.btn:disabled{opacity:.35;cursor:not-allowed}
+.btn-pause:hover{border-color:var(--yellow);color:var(--yellow)}
+.btn-stop:hover{border-color:var(--blue);color:var(--blue)}
+.btn-resume:hover{border-color:var(--green);color:var(--green)}
 .btn-delete:hover{border-color:var(--red);color:var(--red)}
 
 .empty{text-align:center;padding:32px;color:var(--text-muted);font-size:13px}
@@ -119,9 +130,18 @@ function formatDuration(sec) {
   return Math.floor(sec / 86400) + 'd';
 }
 
+function formatMiB(mib) {
+  if (!mib || mib <= 0) return '';
+  if (mib < 1024) return mib + ' MiB';
+  return (mib / 1024).toFixed(1) + ' GiB';
+}
+
 function renderCards(summary, policy) {
   const pauseSub = summary.paused > 0
-    ? `<div style="font-size:11px;color:var(--text-muted);margin-top:4px">${summary.frozen} in memory · ${summary.stopped} on disk</div>`
+    ? `<div class="sub">${summary.frozen} in memory · ${summary.stopped} on disk</div>`
+    : '';
+  const memSub = summary.totalMemoryUsedMiB > 0
+    ? `<div class="sub">across ${summary.running + summary.frozen} live</div>`
     : '';
   const policyLine = policy
     ? `freeze ${formatDuration(policy.freezeDurationSec)} · max ${policy.maxFrozen} frozen · gc ${formatDuration(policy.stoppedGCAfterSec)}`
@@ -130,10 +150,26 @@ function renderCards(summary, policy) {
     <div class="card"><div class="label">Total sandboxes</div><div class="value">${summary.totalSandboxes}</div></div>
     <div class="card"><div class="label">Running</div><div class="value green">${summary.running}</div></div>
     <div class="card"><div class="label">Paused</div><div class="value yellow">${summary.paused}</div>${pauseSub}</div>
+    <div class="card"><div class="label">RAM used</div><div class="value blue">${formatMiB(summary.totalMemoryUsedMiB) || '—'}</div>${memSub}</div>
     <div class="card"><div class="label">Templates</div><div class="value">${summary.totalTemplates}</div></div>
   `;
   const indicator = document.getElementById('refresh-indicator');
   indicator.title = 'pause policy: ' + policyLine;
+}
+
+function actionsFor(s) {
+  // Explicit empty disabled buttons keep columns aligned across rows.
+  const running = s.state === 'running';
+  const frozen = s.state === 'paused' && s.pauseMode === 'frozen';
+  const stopped = s.state === 'paused' && s.pauseMode === 'stopped';
+  const btn = (action, label, enabled, cls) =>
+    `<button class="btn ${cls}" data-action="${action}" data-id="${s.id}" ${enabled ? '' : 'disabled'}>${label}</button>`;
+  const pauseOrResume = running
+    ? btn('pause', 'pause', true, 'btn-pause')
+    : btn('resume', 'resume', frozen || stopped, 'btn-resume');
+  const stopBtn = btn('stop', 'stop', running || frozen, 'btn-stop');
+  const deleteBtn = btn('delete', 'delete', true, 'btn-delete');
+  return `<div class="actions">${pauseOrResume}${stopBtn}${deleteBtn}</div>`;
 }
 
 function renderSandboxes(sandboxes) {
@@ -144,13 +180,12 @@ function renderSandboxes(sandboxes) {
   }
   let html = `<table>
     <thead><tr>
-      <th>ID</th><th>Template</th><th>State</th><th>Created</th><th>TTL</th><th>Metadata</th><th></th>
+      <th>ID</th><th>Template</th><th>State</th><th>Created</th><th>TTL</th><th>Memory</th><th>Metadata</th><th></th>
     </tr></thead><tbody>`;
   for (const s of sandboxes) {
     let ttl;
     if (s.state === 'paused') {
-      const label = s.pauseMode === 'stopped' ? 'on disk' : 'in memory';
-      ttl = { text: 'paused · ' + (s.pausedAt ? formatAge(s.pausedAt) : label), cls: '' };
+      ttl = { text: 'paused · ' + (s.pausedAt ? formatAge(s.pausedAt) : ''), cls: '' };
     } else {
       ttl = formatTTL(s.expiresAt);
     }
@@ -160,6 +195,13 @@ function renderSandboxes(sandboxes) {
       const label = s.pauseMode === 'stopped' ? 'disk' : 'memory';
       modeBadge = `<span class="${cls}" title="${s.pauseMode}">${label}</span>`;
     }
+    let memCell = '<span class="mem-dim">—</span>';
+    if (s.memoryUsedMiB > 0) {
+      const limit = s.memoryLimitMiB > 0 ? ' / ' + formatMiB(s.memoryLimitMiB) : '';
+      memCell = formatMiB(s.memoryUsedMiB) + limit;
+    } else if (s.state === 'paused' && s.pauseMode === 'stopped') {
+      memCell = '<span class="mem-dim">0 (stopped)</span>';
+    }
     const meta = formatMeta(s.metadata);
     html += `<tr>
       <td class="mono id-cell" title="${s.id}">${s.id}</td>
@@ -167,8 +209,9 @@ function renderSandboxes(sandboxes) {
       <td><span class="state state-${s.state}">${s.state}</span>${modeBadge}</td>
       <td title="${s.createdAt}">${formatAge(s.createdAt)}</td>
       <td class="ttl ${ttl.cls}">${ttl.text}</td>
+      <td class="mem">${memCell}</td>
       <td class="meta" title="${meta}">${meta || '<span style="color:var(--text-muted)">&mdash;</span>'}</td>
-      <td><button class="btn-delete" onclick="deleteSandbox('${s.id}')">delete</button></td>
+      <td>${actionsFor(s)}</td>
     </tr>`;
   }
   html += '</tbody></table>';
@@ -214,15 +257,32 @@ async function fetchOverview() {
   }
 }
 
-async function deleteSandbox(id) {
-  if (!confirm('Delete sandbox ' + id + '?')) return;
+async function doAction(id, action) {
+  const confirmMsg = {
+    delete: 'Delete sandbox ' + id + '? This destroys the container.',
+    stop: 'Force-stop sandbox ' + id + '? In-memory state will be lost.',
+  }[action];
+  if (confirmMsg && !confirm(confirmMsg)) return;
   try {
-    await fetch('/dashboard/api/sandboxes/' + id, { method: 'DELETE' });
+    const path = '/dashboard/api/sandboxes/' + id + (action === 'delete' ? '' : '/' + action);
+    const method = action === 'delete' ? 'DELETE' : 'POST';
+    const resp = await fetch(path, { method });
+    if (!resp.ok && resp.status !== 204) {
+      let msg = resp.statusText;
+      try { msg = (await resp.json()).error || msg; } catch (_) {}
+      throw new Error(msg);
+    }
     fetchOverview();
   } catch (e) {
-    alert('Failed to delete sandbox: ' + e.message);
+    alert('Action ' + action + ' failed: ' + e.message);
   }
 }
+
+document.addEventListener('click', (e) => {
+  const btn = e.target.closest('button[data-action]');
+  if (!btn || btn.disabled) return;
+  doAction(btn.dataset.id, btn.dataset.action);
+});
 
 fetchOverview();
 setInterval(fetchOverview, REFRESH_MS);

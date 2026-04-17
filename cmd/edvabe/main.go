@@ -221,6 +221,7 @@ func serveCmd(args []string) {
 	proxyHandler := api.NewProxy(mgr, rt)
 	dashboardHandler := dashboard.NewHandler(dashboard.HandlerOptions{
 		Manager:   mgr,
+		Runtime:   rt,
 		Templates: templateStore,
 	})
 	handler := api.NewRouter(controlHandler, proxyHandler, dashboardHandler)

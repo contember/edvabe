@@ -1037,6 +1037,155 @@ func TestPausePolicyDefaults(t *testing.T) {
 	}
 }
 
+func TestStopForcesRunningIntoStopped(t *testing.T) {
+	clk := newFakeClock(time.Date(2026, 4, 15, 12, 0, 0, 0, time.UTC))
+	m, rt := newTestManagerWithRuntime(t, clk)
+	ctx := context.Background()
+
+	s, err := m.Create(ctx, CreateOptions{Timeout: time.Hour})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if err := m.Stop(ctx, s.ID); err != nil {
+		t.Fatalf("Stop: %v", err)
+	}
+	got, _ := m.Get(s.ID)
+	if got.State != StatePaused || got.PauseMode != PauseStopped {
+		t.Errorf("state=%q mode=%q, want paused/stopped", got.State, got.PauseMode)
+	}
+	if !rt.IsStopped(s.ID) {
+		t.Error("runtime should be stopped")
+	}
+	if rt.IsPaused(s.ID) {
+		t.Error("runtime should not be frozen")
+	}
+}
+
+func TestStopDemotesFrozenToStopped(t *testing.T) {
+	clk := newFakeClock(time.Date(2026, 4, 15, 12, 0, 0, 0, time.UTC))
+	m, rt := newTestManagerWithRuntime(t, clk)
+	ctx := context.Background()
+
+	s, err := m.Create(ctx, CreateOptions{Timeout: time.Hour})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if err := m.Pause(ctx, s.ID); err != nil {
+		t.Fatalf("Pause: %v", err)
+	}
+	if err := m.Stop(ctx, s.ID); err != nil {
+		t.Fatalf("Stop: %v", err)
+	}
+	got, _ := m.Get(s.ID)
+	if got.PauseMode != PauseStopped {
+		t.Errorf("PauseMode = %q, want %q", got.PauseMode, PauseStopped)
+	}
+	if !rt.IsStopped(s.ID) || rt.IsPaused(s.ID) {
+		t.Errorf("runtime: IsStopped=%v IsPaused=%v, want true/false", rt.IsStopped(s.ID), rt.IsPaused(s.ID))
+	}
+}
+
+func TestStopOnStoppedIsNoop(t *testing.T) {
+	clk := newFakeClock(time.Date(2026, 4, 15, 12, 0, 0, 0, time.UTC))
+	m, _ := newTestManagerWithRuntime(t, clk)
+	ctx := context.Background()
+	s, err := m.Create(ctx, CreateOptions{Timeout: time.Hour})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if err := m.Stop(ctx, s.ID); err != nil {
+		t.Fatalf("first Stop: %v", err)
+	}
+	pausedAt := s.PausedAt
+	clk.Advance(5 * time.Minute)
+	if err := m.Stop(ctx, s.ID); err != nil {
+		t.Fatalf("second Stop: %v", err)
+	}
+	got, _ := m.Get(s.ID)
+	if !got.PausedAt.Equal(pausedAt) {
+		t.Errorf("PausedAt changed on no-op Stop: %v vs %v", got.PausedAt, pausedAt)
+	}
+}
+
+func TestResumePreservesTTL(t *testing.T) {
+	clk := newFakeClock(time.Date(2026, 4, 15, 12, 0, 0, 0, time.UTC))
+	m, rt := newTestManagerWithRuntime(t, clk)
+	ctx := context.Background()
+
+	s, err := m.Create(ctx, CreateOptions{Timeout: time.Hour})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	originalExpiry := s.ExpiresAt
+	if err := m.Pause(ctx, s.ID); err != nil {
+		t.Fatalf("Pause: %v", err)
+	}
+	clk.Advance(10 * time.Minute)
+	if err := m.Resume(ctx, s.ID); err != nil {
+		t.Fatalf("Resume: %v", err)
+	}
+	got, _ := m.Get(s.ID)
+	if got.State != StateRunning {
+		t.Errorf("State = %q, want running", got.State)
+	}
+	if !got.ExpiresAt.Equal(originalExpiry) {
+		t.Errorf("ExpiresAt changed: %v vs %v (Resume should preserve TTL)", got.ExpiresAt, originalExpiry)
+	}
+	if rt.IsPaused(s.ID) {
+		t.Error("runtime still paused after Resume")
+	}
+}
+
+func TestResumeFromStoppedRerunsInitAgent(t *testing.T) {
+	clk := newFakeClock(time.Date(2026, 4, 15, 12, 0, 0, 0, time.UTC))
+	m, rt, ap := newTestManagerWithPolicy(t, clk, time.Hour, 10, time.Hour)
+	ctx := context.Background()
+	s, err := m.Create(ctx, CreateOptions{Timeout: time.Hour})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if err := m.Stop(ctx, s.ID); err != nil {
+		t.Fatalf("Stop: %v", err)
+	}
+	inits := ap.inits
+	if err := m.Resume(ctx, s.ID); err != nil {
+		t.Fatalf("Resume: %v", err)
+	}
+	if ap.inits <= inits {
+		t.Errorf("InitAgent not called on resume-from-stopped: %d -> %d", inits, ap.inits)
+	}
+	if rt.IsStopped(s.ID) {
+		t.Error("runtime still stopped after Resume")
+	}
+}
+
+func TestStopUnknown(t *testing.T) {
+	m, _ := newTestManager(t, newFakeClock(time.Now()))
+	if err := m.Stop(context.Background(), "isb_missing"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("Stop missing = %v, want ErrNotFound", err)
+	}
+}
+
+func TestResumeUnknown(t *testing.T) {
+	m, _ := newTestManager(t, newFakeClock(time.Now()))
+	if err := m.Resume(context.Background(), "isb_missing"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("Resume missing = %v, want ErrNotFound", err)
+	}
+}
+
+func TestResumeRunningIsNoop(t *testing.T) {
+	clk := newFakeClock(time.Date(2026, 4, 15, 12, 0, 0, 0, time.UTC))
+	m, _ := newTestManagerWithRuntime(t, clk)
+	ctx := context.Background()
+	s, err := m.Create(ctx, CreateOptions{Timeout: time.Hour})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if err := m.Resume(ctx, s.ID); err != nil {
+		t.Errorf("Resume on running: %v", err)
+	}
+}
+
 func TestCreateDestroysContainerWhenReadyProbeFails(t *testing.T) {
 	clk := newFakeClock(time.Date(2026, 4, 15, 12, 0, 0, 0, time.UTC))
 	resolver := &fakeResolver{
