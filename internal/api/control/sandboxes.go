@@ -15,20 +15,25 @@ import (
 )
 
 type newSandboxRequest struct {
-	TemplateID         string                    `json:"templateID"`
-	Alias              string                    `json:"alias,omitempty"`
-	Timeout            int                       `json:"timeout"`
-	Metadata           map[string]string         `json:"metadata"`
-	EnvVars            map[string]string         `json:"envVars"`
-	AutoPause          bool                      `json:"autoPause"`
-	Lifecycle          *newSandboxLifecycleInput `json:"lifecycle,omitempty"`
+	TemplateID string                    `json:"templateID"`
+	Alias      string                    `json:"alias,omitempty"`
+	Timeout    int                       `json:"timeout"`
+	Metadata   map[string]string         `json:"metadata"`
+	EnvVars    map[string]string         `json:"envVars"`
+	AutoPause  bool                      `json:"autoPause"`
+	Lifecycle  *newSandboxLifecycleInput `json:"lifecycle,omitempty"`
+	// CPUCount / MemoryMB override the template's resource caps for
+	// this sandbox. Zero leaves the template default; negative means
+	// "unlimited" for the override. Matches the E2B SDK field names.
+	CPUCount int `json:"cpuCount,omitempty"`
+	MemoryMB int `json:"memoryMB,omitempty"`
 	// Accepted for wire compat but not enforced in edvabe.
-	Secure             bool                      `json:"secure,omitempty"`
-	AllowInternetAccess *bool                    `json:"allow_internet_access,omitempty"`
-	Network            *json.RawMessage          `json:"network,omitempty"`
-	VolumeMounts       []json.RawMessage         `json:"volumeMounts,omitempty"`
-	MCP                *json.RawMessage          `json:"mcp,omitempty"`
-	AutoResume         *json.RawMessage          `json:"autoResume,omitempty"`
+	Secure              bool              `json:"secure,omitempty"`
+	AllowInternetAccess *bool             `json:"allow_internet_access,omitempty"`
+	Network             *json.RawMessage  `json:"network,omitempty"`
+	VolumeMounts        []json.RawMessage `json:"volumeMounts,omitempty"`
+	MCP                 *json.RawMessage  `json:"mcp,omitempty"`
+	AutoResume          *json.RawMessage  `json:"autoResume,omitempty"`
 }
 
 // newSandboxLifecycleInput mirrors the SDK's NewSandbox.lifecycle field.
@@ -98,6 +103,8 @@ func createSandbox(manager sandboxManager, provider versionProvider, w http.Resp
 		EnvVars:    req.EnvVars,
 		Timeout:    time.Duration(req.Timeout) * time.Second,
 		OnTimeout:  resolveOnTimeout(req),
+		CPUCount:   req.CPUCount,
+		MemoryMB:   req.MemoryMB,
 	})
 	if err != nil {
 		api.WriteError(w, http.StatusInternalServerError, err.Error())
@@ -554,13 +561,20 @@ func toSandboxDetailResponse(manager sandboxManager, provider versionProvider, s
 	resp := sandboxDetailResponse{
 		sandboxResponse:     toSandboxResponse(manager, provider, sbx),
 		State:               sbx.State,
+		CPUCount:            sbx.CPUCount,
+		MemoryMB:            int64(sbx.MemoryMB),
 		Lifecycle:           sandboxLifecycle{OnTimeout: onTimeout, AutoResume: sandboxAutoResumeMode{Enabled: sbx.OnTimeout == sandbox.OnTimeoutPause}},
 		Network:             sandboxNetworkConfig{AllowPublicTraffic: true, AllowOut: []string{}, DenyOut: []string{}},
 		AllowInternetAccess: true,
 		EnvVars:             sbx.EnvVars,
 	}
+	// Fall back to runtime stats for sandboxes created before this
+	// field existed (CPUCount/MemoryMB == 0 means "unlimited" on the
+	// request side, but we'd rather echo the cgroup limit than zero).
 	if stats != nil {
-		resp.MemoryMB = stats.MemoryLimitMB
+		if resp.MemoryMB == 0 {
+			resp.MemoryMB = stats.MemoryLimitMB
+		}
 		resp.DiskSizeMB = stats.DiskUsedMB
 	}
 	return resp

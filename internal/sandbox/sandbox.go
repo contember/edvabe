@@ -78,4 +78,9 @@ type Sandbox struct {
 	EnvVars      map[string]string
 	CreatedAt    time.Time
 	ExpiresAt    time.Time
+	// CPUCount / MemoryMB are the resource caps applied to the
+	// container. Zero means unlimited (Docker default). Sourced from
+	// the template resolution and per-sandbox overrides.
+	CPUCount int
+	MemoryMB int
 }

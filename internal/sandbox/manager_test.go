@@ -1037,6 +1037,94 @@ func TestPausePolicyDefaults(t *testing.T) {
 	}
 }
 
+func TestCreateForwardsTemplateResources(t *testing.T) {
+	clk := newFakeClock(time.Date(2026, 4, 15, 12, 0, 0, 0, time.UTC))
+	resolver := &fakeResolver{
+		resolutions: map[string]TemplateResolution{
+			"heavy": {
+				ImageTag: "edvabe/heavy:latest",
+				CPUCount: 4,
+				MemoryMB: 2048,
+			},
+		},
+	}
+	m, rt := newManagerWithResolver(t, clk, resolver)
+
+	sbx, err := m.Create(context.Background(), CreateOptions{TemplateID: "heavy"})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if rt.CPUCount(sbx.ID) != 4 {
+		t.Errorf("runtime CPU = %d, want 4", rt.CPUCount(sbx.ID))
+	}
+	if rt.MemoryMB(sbx.ID) != 2048 {
+		t.Errorf("runtime mem = %d, want 2048", rt.MemoryMB(sbx.ID))
+	}
+	if sbx.CPUCount != 4 || sbx.MemoryMB != 2048 {
+		t.Errorf("sandbox record cpu=%d mem=%d, want 4/2048", sbx.CPUCount, sbx.MemoryMB)
+	}
+}
+
+func TestCreateOverrideBeatsTemplate(t *testing.T) {
+	clk := newFakeClock(time.Date(2026, 4, 15, 12, 0, 0, 0, time.UTC))
+	resolver := &fakeResolver{
+		resolutions: map[string]TemplateResolution{
+			"base": {ImageTag: "edvabe/base:latest", CPUCount: 2, MemoryMB: 1024},
+		},
+	}
+	m, rt := newManagerWithResolver(t, clk, resolver)
+
+	sbx, err := m.Create(context.Background(), CreateOptions{
+		TemplateID: "base",
+		CPUCount:   8,
+		MemoryMB:   4096,
+	})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if rt.CPUCount(sbx.ID) != 8 || rt.MemoryMB(sbx.ID) != 4096 {
+		t.Errorf("override not applied: cpu=%d mem=%d", rt.CPUCount(sbx.ID), rt.MemoryMB(sbx.ID))
+	}
+}
+
+func TestCreateNegativeOverrideMeansUnlimited(t *testing.T) {
+	clk := newFakeClock(time.Date(2026, 4, 15, 12, 0, 0, 0, time.UTC))
+	resolver := &fakeResolver{
+		resolutions: map[string]TemplateResolution{
+			"capped": {ImageTag: "edvabe/capped:latest", CPUCount: 2, MemoryMB: 512},
+		},
+	}
+	m, rt := newManagerWithResolver(t, clk, resolver)
+
+	sbx, err := m.Create(context.Background(), CreateOptions{
+		TemplateID: "capped",
+		CPUCount:   -1,
+		MemoryMB:   -1,
+	})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if rt.CPUCount(sbx.ID) != 0 || rt.MemoryMB(sbx.ID) != 0 {
+		t.Errorf("negative override should zero limits: cpu=%d mem=%d", rt.CPUCount(sbx.ID), rt.MemoryMB(sbx.ID))
+	}
+}
+
+func TestCreateNoResourcesMeansUnlimited(t *testing.T) {
+	clk := newFakeClock(time.Date(2026, 4, 15, 12, 0, 0, 0, time.UTC))
+	m, rt := newManagerWithResolver(t, clk, nil)
+
+	sbx, err := m.Create(context.Background(), CreateOptions{})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if rt.CPUCount(sbx.ID) != 0 || rt.MemoryMB(sbx.ID) != 0 {
+		t.Errorf("no limits requested: cpu=%d mem=%d, want 0/0", rt.CPUCount(sbx.ID), rt.MemoryMB(sbx.ID))
+	}
+	if sbx.CPUCount != 0 || sbx.MemoryMB != 0 {
+		t.Errorf("sandbox record should carry zeros, got cpu=%d mem=%d", sbx.CPUCount, sbx.MemoryMB)
+	}
+}
+
 func TestStopForcesRunningIntoStopped(t *testing.T) {
 	clk := newFakeClock(time.Date(2026, 4, 15, 12, 0, 0, 0, time.UTC))
 	m, rt := newTestManagerWithRuntime(t, clk)

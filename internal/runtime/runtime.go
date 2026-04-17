@@ -80,6 +80,11 @@ type CreateRequest struct {
 	// Passed into the container as EDVABE_READY_CMD for diagnostics.
 	// Empty skips the probe loop — Phase 1 fast path.
 	ReadyCmd string
+	// CPUCount caps the sandbox to this many cores via cgroup CPU
+	// quota (NanoCPUs = CPUCount * 1e9). Zero means unlimited.
+	CPUCount int
+	// MemoryMB caps the sandbox's RSS. Zero means unlimited.
+	MemoryMB int
 }
 
 // SandboxHandle is the runtime's view of a created sandbox.

@@ -55,6 +55,12 @@ func (r *Runtime) Create(ctx context.Context, req runtime.CreateRequest) (*runti
 	if r.network != "" {
 		hostCfg.NetworkMode = container.NetworkMode(r.network)
 	}
+	if req.CPUCount > 0 {
+		hostCfg.NanoCPUs = int64(req.CPUCount) * 1_000_000_000
+	}
+	if req.MemoryMB > 0 {
+		hostCfg.Memory = int64(req.MemoryMB) * 1024 * 1024
+	}
 
 	created, err := r.cli.ContainerCreate(ctx, client.ContainerCreateOptions{
 		Config:     cfg,

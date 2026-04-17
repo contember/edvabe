@@ -83,6 +83,12 @@ type TemplateResolution struct {
 	ImageTag string
 	StartCmd string
 	ReadyCmd string
+	// CPUCount caps the sandbox to this many CPU cores via cgroup
+	// quota. Zero means unlimited (Docker default) — matching the
+	// pre-resource-limits behaviour.
+	CPUCount int
+	// MemoryMB caps the sandbox's RSS. Zero means unlimited.
+	MemoryMB int
 }
 
 // ErrTemplateNotFound signals the resolver has no record of the given
@@ -204,6 +210,12 @@ type CreateOptions struct {
 	// OnTimeout controls what EnforceTimeouts does when this sandbox
 	// expires. Empty string defaults to OnTimeoutKill (Phase 1 behaviour).
 	OnTimeout OnTimeoutMode
+	// CPUCount / MemoryMB override the template's resource limits for
+	// this one sandbox. Zero leaves the template value in place; to
+	// explicitly request unlimited on a capped template, pass a
+	// negative number.
+	CPUCount int
+	MemoryMB int
 }
 
 // Create mints a fresh sandbox, starts its container via the runtime,
@@ -224,6 +236,21 @@ func (m *Manager) Create(ctx context.Context, opts CreateOptions) (*Sandbox, err
 
 	resolution := m.resolveTemplate(templateID)
 
+	// Resource limits: per-sandbox override wins over the template's
+	// default. A negative override is the "unlimited" escape hatch.
+	cpuCount := resolution.CPUCount
+	if opts.CPUCount > 0 {
+		cpuCount = opts.CPUCount
+	} else if opts.CPUCount < 0 {
+		cpuCount = 0
+	}
+	memoryMB := resolution.MemoryMB
+	if opts.MemoryMB > 0 {
+		memoryMB = opts.MemoryMB
+	} else if opts.MemoryMB < 0 {
+		memoryMB = 0
+	}
+
 	id := NewSandboxID()
 	envdToken := NewEnvdToken()
 	trafficToken := NewTrafficToken()
@@ -238,6 +265,8 @@ func (m *Manager) Create(ctx context.Context, opts CreateOptions) (*Sandbox, err
 		AgentToken: envdToken,
 		StartCmd:   resolution.StartCmd,
 		ReadyCmd:   resolution.ReadyCmd,
+		CPUCount:   cpuCount,
+		MemoryMB:   memoryMB,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("sandbox: create %q: runtime: %w", id, err)
@@ -288,6 +317,8 @@ func (m *Manager) Create(ctx context.Context, opts CreateOptions) (*Sandbox, err
 		EnvVars:      cloneMap(opts.EnvVars),
 		CreatedAt:    now,
 		ExpiresAt:    now.Add(opts.Timeout),
+		CPUCount:     cpuCount,
+		MemoryMB:     memoryMB,
 	}
 
 	m.mu.Lock()

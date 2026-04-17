@@ -170,6 +170,62 @@ func TestDockerRuntimePauseUnpauseCommit(t *testing.T) {
 	}
 }
 
+func TestDockerRuntimeCreateAppliesResourceLimits(t *testing.T) {
+	r := newTestRuntime(t)
+	ctx := context.Background()
+
+	sid := uniqueSandboxID(t)
+	t.Cleanup(func() { _ = r.Destroy(ctx, sid) })
+
+	if _, err := r.Create(ctx, runtime.CreateRequest{
+		SandboxID: sid,
+		Image:     testImage,
+		CPUCount:  2,
+		MemoryMB:  256,
+	}); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	inspect, err := r.cli.ContainerInspect(ctx, sid, client.ContainerInspectOptions{})
+	if err != nil {
+		t.Fatalf("ContainerInspect: %v", err)
+	}
+	wantCPU := int64(2) * 1_000_000_000
+	if inspect.Container.HostConfig.NanoCPUs != wantCPU {
+		t.Errorf("NanoCPUs = %d, want %d", inspect.Container.HostConfig.NanoCPUs, wantCPU)
+	}
+	wantMem := int64(256) * 1024 * 1024
+	if inspect.Container.HostConfig.Memory != wantMem {
+		t.Errorf("Memory = %d, want %d", inspect.Container.HostConfig.Memory, wantMem)
+	}
+}
+
+func TestDockerRuntimeCreateSkipsZeroResourceLimits(t *testing.T) {
+	r := newTestRuntime(t)
+	ctx := context.Background()
+
+	sid := uniqueSandboxID(t)
+	t.Cleanup(func() { _ = r.Destroy(ctx, sid) })
+
+	if _, err := r.Create(ctx, runtime.CreateRequest{
+		SandboxID: sid,
+		Image:     testImage,
+	}); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	inspect, err := r.cli.ContainerInspect(ctx, sid, client.ContainerInspectOptions{})
+	if err != nil {
+		t.Fatalf("ContainerInspect: %v", err)
+	}
+	if inspect.Container.HostConfig.NanoCPUs != 0 {
+		t.Errorf("NanoCPUs = %d, want 0 (unlimited)", inspect.Container.HostConfig.NanoCPUs)
+	}
+	if inspect.Container.HostConfig.Memory != 0 {
+		t.Errorf("Memory = %d, want 0 (unlimited)", inspect.Container.HostConfig.Memory)
+	}
+}
+
 func TestDockerRuntimeCreateRequiresID(t *testing.T) {
 	r := newTestRuntime(t)
 	ctx := context.Background()

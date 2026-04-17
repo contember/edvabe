@@ -51,5 +51,7 @@ func (r *sandboxResolver) Resolve(idOrAlias string) (sandbox.TemplateResolution,
 		ImageTag: tag,
 		StartCmd: tpl.StartCmd,
 		ReadyCmd: tpl.ReadyCmd,
+		CPUCount: tpl.CPUCount,
+		MemoryMB: tpl.MemoryMB,
 	}, nil
 }

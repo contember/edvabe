@@ -19,6 +19,8 @@ type entry struct {
 	envs     map[string]string
 	startCmd string
 	readyCmd string
+	cpuCount int
+	memoryMB int
 	paused   bool
 	stopped  bool
 }
@@ -63,8 +65,31 @@ func (r *Runtime) Create(ctx context.Context, req runtime.CreateRequest) (*runti
 		envs:     copyStrMap(req.EnvVars),
 		startCmd: req.StartCmd,
 		readyCmd: req.ReadyCmd,
+		cpuCount: req.CPUCount,
+		memoryMB: req.MemoryMB,
 	}
 	return h, nil
+}
+
+// CPUCount / MemoryMB return the requested cgroup caps so tests can
+// assert the resource-limit plumbing reached the runtime. Zero for
+// unknown sandboxes — same convention as Image().
+func (r *Runtime) CPUCount(sandboxID string) int {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	if e, ok := r.sandboxes[sandboxID]; ok {
+		return e.cpuCount
+	}
+	return 0
+}
+
+func (r *Runtime) MemoryMB(sandboxID string) int {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	if e, ok := r.sandboxes[sandboxID]; ok {
+		return e.memoryMB
+	}
+	return 0
 }
 
 // Image returns the image tag the named sandbox was launched with,
