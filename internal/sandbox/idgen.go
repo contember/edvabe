@@ -4,11 +4,15 @@ import (
 	"crypto/rand"
 	"encoding/base32"
 	"encoding/base64"
+	"strings"
 )
 
-// sandboxIDEncoding uses lowercase base32 without padding so the ID is
-// URL-safe and case-insensitive. 10 random bytes → 16 characters.
-var sandboxIDEncoding = base32.StdEncoding.WithPadding(base32.NoPadding)
+// sandboxIDEncoding is lowercase base32 without padding. Lowercase so
+// the ID survives DNS/HTTP hostname case-folding in preview URLs
+// (<port>-<id>.<domain>), where intermediate resolvers are free to
+// normalize the host to lowercase. Go stdlib only ships the uppercase
+// alphabet, so we build the lowercase one at package init.
+var sandboxIDEncoding = base32.NewEncoding(strings.ToLower("ABCDEFGHIJKLMNOPQRSTUVWXYZ234567")).WithPadding(base32.NoPadding)
 
 // NewSandboxID returns "isb_" followed by 16 random base32 characters.
 // Not a formal ULID — E2B clients only check the prefix, not the

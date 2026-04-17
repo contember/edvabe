@@ -32,5 +32,9 @@ func parseHost(host string) (port, id string, ok bool) {
 	if _, err := strconv.Atoi(parts[0]); err != nil {
 		return "", "", false
 	}
-	return parts[0], parts[1], true
+	// Hostnames are case-insensitive and browsers / DNS resolvers are
+	// free to normalize them. Sandbox IDs are generated lowercase
+	// (see internal/sandbox/idgen.go) so we lowercase here too — the
+	// lookup is exact.
+	return parts[0], strings.ToLower(parts[1]), true
 }
