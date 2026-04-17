@@ -43,6 +43,31 @@ func detectOwnContainerID() string {
 	return ""
 }
 
+// detectOwnIPv4 returns edvabe's own IPv4 address on the given Docker
+// network, or "" when we are not containerized, the network isn't
+// attached, or inspection fails. Used to default --dns-answer so
+// compose setups don't need to pin a static IP.
+func detectOwnIPv4(cli *client.Client, network string) string {
+	id := detectOwnContainerID()
+	if id == "" || network == "" {
+		return ""
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	inspect, err := cli.ContainerInspect(ctx, id, client.ContainerInspectOptions{})
+	if err != nil || inspect.Container.NetworkSettings == nil {
+		return ""
+	}
+	ep, ok := inspect.Container.NetworkSettings.Networks[network]
+	if !ok || ep == nil {
+		return ""
+	}
+	if !ep.IPAddress.IsValid() {
+		return ""
+	}
+	return ep.IPAddress.String()
+}
+
 // detectOwnNetwork returns the first non-default Docker network that
 // edvabe's own container is attached to, or "" when we are not
 // containerized, only use default networks (bridge/host/none), or the

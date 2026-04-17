@@ -94,6 +94,11 @@ func New() (*Runtime, error) {
 // attached to ("" means default bridge).
 func (r *Runtime) Network() string { return r.network }
 
+// OwnIPv4 returns edvabe's own IPv4 address on the sandbox network, or
+// "" when it can't be determined (not containerized, inspection failed,
+// etc.). Used to default --dns-answer.
+func (r *Runtime) OwnIPv4() string { return detectOwnIPv4(r.cli, r.network) }
+
 // Name is "docker".
 func (r *Runtime) Name() string { return "docker" }
 

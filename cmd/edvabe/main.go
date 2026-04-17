@@ -6,9 +6,12 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"time"
 
@@ -16,6 +19,7 @@ import (
 	api "github.com/contember/edvabe/internal/api"
 	"github.com/contember/edvabe/internal/api/control"
 	"github.com/contember/edvabe/internal/api/dashboard"
+	edvabednsserver "github.com/contember/edvabe/internal/dns"
 	"github.com/contember/edvabe/internal/doctor"
 	"github.com/contember/edvabe/internal/runtime/docker"
 	"github.com/contember/edvabe/internal/sandbox"
@@ -80,6 +84,10 @@ func serveCmd(args []string) {
 	port := fs.Int("port", 3000, "HTTP port to listen on")
 	socket := fs.String("docker-socket", "", "Path to Docker socket (auto-detected if empty)")
 	dockerNetwork := fs.String("docker-network", "", "Docker network to attach sandbox containers to (required when edvabe runs inside Docker Compose)")
+	domainFlag := fs.String("domain", "", "Public domain used in sandbox preview URLs (default: \"localhost:<port>\"). Override when edvabe is reachable under a non-localhost name, e.g. \"sbx.edvabe:3000\" inside Docker.")
+	dnsListen := fs.String("dns-listen", "", "If set (e.g. \":53\"), start a UDP DNS server that answers A queries for *.<domain> with --dns-answer. Intended for Docker-in-Docker preview URLs.")
+	dnsAnswer := fs.String("dns-answer", "", "IPv4 address to return for A queries. Required when --dns-listen is set. Typically edvabe's own address on the shared Docker network.")
+	dnsUpstream := fs.String("dns-upstream", "127.0.0.11:53", "Upstream DNS server for out-of-domain queries (Docker's embedded resolver by default). Set empty to REFUSE instead of forwarding.")
 	_ = fs.Parse(args)
 	if *socket != "" {
 		if err := os.Setenv("DOCKER_HOST", "unix://"+*socket); err != nil {
@@ -147,7 +155,10 @@ func serveCmd(args []string) {
 		os.Exit(1)
 	}
 
-	domain := fmt.Sprintf("localhost:%d", *port)
+	domain := *domainFlag
+	if domain == "" {
+		domain = fmt.Sprintf("localhost:%d", *port)
+	}
 	mgr, err := sandbox.NewManager(sandbox.Options{
 		Runtime:  rt,
 		Agent:    ap,
@@ -206,6 +217,40 @@ func serveCmd(args []string) {
 		Templates: templateStore,
 	})
 	handler := api.NewRouter(controlHandler, proxyHandler, dashboardHandler)
+
+	if *dnsListen != "" {
+		answerStr := *dnsAnswer
+		if answerStr == "" {
+			answerStr = rt.OwnIPv4()
+			if answerStr == "" {
+				fmt.Fprintf(os.Stderr, "serve: --dns-answer not set and auto-detect failed (edvabe not in a Docker network?)\n")
+				os.Exit(1)
+			}
+			log.Printf("dns: auto-detected answer IP %s", answerStr)
+		}
+		answer := net.ParseIP(answerStr)
+		if answer == nil || answer.To4() == nil {
+			fmt.Fprintf(os.Stderr, "serve: --dns-answer %q is not a valid IPv4 address\n", answerStr)
+			os.Exit(1)
+		}
+		// strip :port from domain — DNS name has no port
+		base := domain
+		if i := strings.IndexByte(base, ':'); i >= 0 {
+			base = base[:i]
+		}
+		dnsSrv := &edvabednsserver.Server{
+			Addr:     *dnsListen,
+			Domain:   base,
+			Answer:   answer,
+			Upstream: *dnsUpstream,
+			Logger:   slog.Default(),
+		}
+		go func() {
+			if err := dnsSrv.ListenAndServe(context.Background()); err != nil {
+				log.Printf("dns server: %v", err)
+			}
+		}()
+	}
 
 	addr := fmt.Sprintf(":%d", *port)
 	go mgr.Run(context.Background(), 0)
