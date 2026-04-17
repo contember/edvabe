@@ -48,3 +48,45 @@ func (r *Runtime) Unpause(ctx context.Context, sandboxID string) error {
 	}
 	return nil
 }
+
+// Stop halts the container via `docker stop`. Processes receive SIGTERM
+// then SIGKILL after Docker's default grace period. Memory is released;
+// the writable filesystem layer is preserved so Start can boot it again.
+func (r *Runtime) Stop(ctx context.Context, sandboxID string) error {
+	if sandboxID == "" {
+		return fmt.Errorf("docker runtime: Stop: sandboxID is required")
+	}
+	if _, err := r.cli.ContainerStop(ctx, sandboxID, client.ContainerStopOptions{}); err != nil {
+		return fmt.Errorf("docker runtime: stop %q: %w", sandboxID, err)
+	}
+	return nil
+}
+
+// Start boots a previously stopped container and refreshes the cached
+// agent endpoint. Docker may assign a new bridge IP after restart, so
+// we re-inspect and overwrite the entry the reverse proxy consults.
+func (r *Runtime) Start(ctx context.Context, sandboxID string) error {
+	if sandboxID == "" {
+		return fmt.Errorf("docker runtime: Start: sandboxID is required")
+	}
+	if _, err := r.cli.ContainerStart(ctx, sandboxID, client.ContainerStartOptions{}); err != nil {
+		return fmt.Errorf("docker runtime: start %q: %w", sandboxID, err)
+	}
+	inspect, err := r.cli.ContainerInspect(ctx, sandboxID, client.ContainerInspectOptions{})
+	if err != nil {
+		return fmt.Errorf("docker runtime: inspect after start %q: %w", sandboxID, err)
+	}
+	host, err := extractBridgeIP(inspect.Container, r.network)
+	if err != nil {
+		return fmt.Errorf("docker runtime: resolve bridge IP after start for %q: %w", sandboxID, err)
+	}
+	r.mu.Lock()
+	e := r.endpoints[sandboxID]
+	e.host = host
+	if e.port == 0 {
+		e.port = defaultAgentPort
+	}
+	r.endpoints[sandboxID] = e
+	r.mu.Unlock()
+	return nil
+}

@@ -20,6 +20,7 @@ var indexHTML []byte
 type sandboxManager interface {
 	List() []*sandbox.Sandbox
 	Destroy(ctx context.Context, id string) error
+	PausePolicy() sandbox.PausePolicy
 }
 
 type templateStore interface {
@@ -52,9 +53,10 @@ func NewHandler(opts HandlerOptions) http.Handler {
 }
 
 type overviewResponse struct {
-	Sandboxes []overviewSandbox  `json:"sandboxes"`
-	Templates []overviewTemplate `json:"templates"`
-	Summary   overviewSummary    `json:"summary"`
+	Sandboxes   []overviewSandbox  `json:"sandboxes"`
+	Templates   []overviewTemplate `json:"templates"`
+	Summary     overviewSummary    `json:"summary"`
+	PausePolicy overviewPolicy     `json:"pausePolicy"`
 }
 
 type overviewSandbox struct {
@@ -62,9 +64,20 @@ type overviewSandbox struct {
 	TemplateID string            `json:"templateID"`
 	Alias      string            `json:"alias,omitempty"`
 	State      sandbox.State     `json:"state"`
+	PauseMode  sandbox.PauseMode `json:"pauseMode,omitempty"`
+	PausedAt   string            `json:"pausedAt,omitempty"`
 	CreatedAt  string            `json:"createdAt"`
 	ExpiresAt  string            `json:"expiresAt"`
 	Metadata   map[string]string `json:"metadata,omitempty"`
+}
+
+// overviewPolicy mirrors sandbox.PausePolicy but renders durations as
+// seconds so the dashboard can format them client-side without parsing
+// Go duration strings.
+type overviewPolicy struct {
+	FreezeDurationSec int64 `json:"freezeDurationSec"`
+	MaxFrozen         int   `json:"maxFrozen"`
+	StoppedGCAfterSec int64 `json:"stoppedGCAfterSec"`
 }
 
 type overviewTemplate struct {
@@ -80,6 +93,8 @@ type overviewSummary struct {
 	TotalSandboxes int `json:"totalSandboxes"`
 	Running        int `json:"running"`
 	Paused         int `json:"paused"`
+	Frozen         int `json:"frozen"`
+	Stopped        int `json:"stopped"`
 	TotalTemplates int `json:"totalTemplates"`
 }
 
@@ -91,23 +106,41 @@ func serveOverview(opts HandlerOptions, w http.ResponseWriter, r *http.Request) 
 	}
 
 	for _, s := range list {
-		resp.Sandboxes = append(resp.Sandboxes, overviewSandbox{
+		entry := overviewSandbox{
 			ID:         s.ID,
 			TemplateID: s.TemplateID,
 			Alias:      s.Alias,
 			State:      s.State,
+			PauseMode:  s.PauseMode,
 			CreatedAt:  s.CreatedAt.UTC().Format("2006-01-02T15:04:05Z"),
 			ExpiresAt:  s.ExpiresAt.UTC().Format("2006-01-02T15:04:05Z"),
 			Metadata:   s.Metadata,
-		})
+		}
+		if !s.PausedAt.IsZero() {
+			entry.PausedAt = s.PausedAt.UTC().Format("2006-01-02T15:04:05Z")
+		}
+		resp.Sandboxes = append(resp.Sandboxes, entry)
 		switch s.State {
 		case sandbox.StateRunning:
 			resp.Summary.Running++
 		case sandbox.StatePaused:
 			resp.Summary.Paused++
+			switch s.PauseMode {
+			case sandbox.PauseFrozen:
+				resp.Summary.Frozen++
+			case sandbox.PauseStopped:
+				resp.Summary.Stopped++
+			}
 		}
 	}
 	resp.Summary.TotalSandboxes = len(list)
+
+	policy := opts.Manager.PausePolicy()
+	resp.PausePolicy = overviewPolicy{
+		FreezeDurationSec: int64(policy.FreezeDuration.Seconds()),
+		MaxFrozen:         policy.MaxFrozen,
+		StoppedGCAfterSec: int64(policy.StoppedGCAfter.Seconds()),
+	}
 
 	if opts.Templates != nil {
 		tpls := opts.Templates.List()

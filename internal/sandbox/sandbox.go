@@ -16,11 +16,28 @@ type State string
 
 const (
 	// StateRunning means the sandbox's container is up and accepting
-	// envd traffic. This is the only reachable state in Phase 1.
+	// envd traffic.
 	StateRunning State = "running"
-	// StatePaused is reserved for Phase 4 (docker pause). Not produced
-	// by Phase 1 code paths.
+	// StatePaused covers both frozen (docker pause) and stopped (docker
+	// stop) containers — see PauseMode for the substate.
 	StatePaused State = "paused"
+)
+
+// PauseMode distinguishes the two kinds of paused container edvabe
+// manages. Frozen holds RAM and resumes instantly; stopped releases RAM
+// and requires a cold boot + agent re-init on resume. Meaningful only
+// when State == StatePaused.
+type PauseMode string
+
+const (
+	// PauseFrozen means the container is held via `docker pause` —
+	// processes are suspended, memory is resident, resume is a cheap
+	// `docker unpause`.
+	PauseFrozen PauseMode = "frozen"
+	// PauseStopped means the container was demoted to `docker stop` to
+	// free host memory. Resume requires `docker start` + agent re-init,
+	// and in-memory process state is lost.
+	PauseStopped PauseMode = "stopped"
 )
 
 // OnTimeoutMode controls what EnforceTimeouts does to a sandbox once
@@ -49,7 +66,14 @@ type Sandbox struct {
 	EnvdToken    string
 	TrafficToken string
 	State        State
-	OnTimeout    OnTimeoutMode
+	// PauseMode is the substate when State == StatePaused. Empty
+	// otherwise. See PauseMode for the tradeoffs.
+	PauseMode PauseMode
+	// PausedAt records when the sandbox was most recently paused. Used
+	// by the reaper to demote long-frozen containers to stopped and to
+	// GC long-stopped containers. Zero when State != StatePaused.
+	PausedAt time.Time
+	OnTimeout OnTimeoutMode
 	Metadata     map[string]string
 	EnvVars      map[string]string
 	CreatedAt    time.Time

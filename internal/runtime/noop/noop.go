@@ -20,6 +20,7 @@ type entry struct {
 	startCmd string
 	readyCmd string
 	paused   bool
+	stopped  bool
 }
 
 type Runtime struct {
@@ -130,6 +131,29 @@ func (r *Runtime) Unpause(ctx context.Context, sandboxID string) error {
 	return nil
 }
 
+func (r *Runtime) Stop(ctx context.Context, sandboxID string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	e, ok := r.sandboxes[sandboxID]
+	if !ok {
+		return fmt.Errorf("noop: sandbox %q not found", sandboxID)
+	}
+	e.stopped = true
+	e.paused = false
+	return nil
+}
+
+func (r *Runtime) Start(ctx context.Context, sandboxID string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	e, ok := r.sandboxes[sandboxID]
+	if !ok {
+		return fmt.Errorf("noop: sandbox %q not found", sandboxID)
+	}
+	e.stopped = false
+	return nil
+}
+
 func (r *Runtime) Commit(ctx context.Context, sandboxID, imageTag string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -183,6 +207,14 @@ func (r *Runtime) IsPaused(sandboxID string) bool {
 	defer r.mu.RUnlock()
 	e, ok := r.sandboxes[sandboxID]
 	return ok && e.paused
+}
+
+// IsStopped is exposed for tests that exercise Stop/Start plumbing.
+func (r *Runtime) IsStopped(sandboxID string) bool {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	e, ok := r.sandboxes[sandboxID]
+	return ok && e.stopped
 }
 
 func copyStrMap(m map[string]string) map[string]string {

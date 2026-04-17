@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"sync"
 	"time"
 
@@ -45,6 +46,21 @@ const (
 	// loop. Chosen to be much smaller than the smallest realistic
 	// timeout while still being cheap.
 	WatchdogInterval = 1 * time.Second
+	// DefaultFreezeDuration caps how long a paused sandbox stays in
+	// `docker pause` (holding RAM) before being demoted to `docker
+	// stop` to free host memory. A day covers the "pause overnight,
+	// resume next morning" case without letting forgotten sandboxes
+	// hog RAM forever.
+	DefaultFreezeDuration = 24 * time.Hour
+	// DefaultMaxFrozen caps how many sandboxes can hold RAM via docker
+	// pause at once. Further pauses demote the oldest frozen sandbox
+	// first (LRU by PausedAt). Zero disables the cap.
+	DefaultMaxFrozen = 10
+	// DefaultStoppedGCAfter is how long a stopped (demoted) sandbox
+	// lingers before the reaper destroys it to reclaim disk. A month
+	// is generous; users who pause work for longer than that can
+	// snapshot explicitly.
+	DefaultStoppedGCAfter = 30 * 24 * time.Hour
 	// defaultUser and defaultWorkdir match the E2B SDK expectations —
 	// see docs/05-architecture.md and the task 6 /init smoke test.
 	defaultUser    = "user"
@@ -85,8 +101,29 @@ type Manager struct {
 	domain    string
 	resolver  TemplateResolver
 
+	freezeDuration time.Duration
+	maxFrozen      int
+	stoppedGCAfter time.Duration
+
 	mu        sync.RWMutex
 	sandboxes map[string]*Sandbox
+}
+
+// PausePolicy reports the configured limits used by the reaper. Exposed
+// so the dashboard / doctor can surface the effective policy.
+type PausePolicy struct {
+	FreezeDuration time.Duration
+	MaxFrozen      int
+	StoppedGCAfter time.Duration
+}
+
+// PausePolicy returns the limits the reaper enforces.
+func (m *Manager) PausePolicy() PausePolicy {
+	return PausePolicy{
+		FreezeDuration: m.freezeDuration,
+		MaxFrozen:      m.maxFrozen,
+		StoppedGCAfter: m.stoppedGCAfter,
+	}
 }
 
 // Options configures NewManager.
@@ -99,6 +136,18 @@ type Options struct {
 	// Resolver maps templateID → (image, startCmd, readyCmd). Optional:
 	// when nil, every create resolves to BaseImage (Phase 1 behaviour).
 	Resolver TemplateResolver
+	// FreezeDuration is how long Pause keeps a sandbox in `docker pause`
+	// before the reaper demotes it to `docker stop`. Zero defaults to
+	// DefaultFreezeDuration. Negative disables demotion entirely.
+	FreezeDuration time.Duration
+	// MaxFrozen caps how many sandboxes hold RAM in docker-pause state
+	// at once. Zero defaults to DefaultMaxFrozen; negative disables the
+	// cap.
+	MaxFrozen int
+	// StoppedGCAfter is how long a demoted (stopped) sandbox lingers
+	// before the reaper destroys it. Zero defaults to
+	// DefaultStoppedGCAfter. Negative disables GC.
+	StoppedGCAfter time.Duration
 }
 
 // NewManager constructs a Manager. Runtime and Agent are required.
@@ -118,14 +167,26 @@ func NewManager(opts Options) (*Manager, error) {
 	if opts.Domain == "" {
 		opts.Domain = DefaultDomain
 	}
+	if opts.FreezeDuration == 0 {
+		opts.FreezeDuration = DefaultFreezeDuration
+	}
+	if opts.MaxFrozen == 0 {
+		opts.MaxFrozen = DefaultMaxFrozen
+	}
+	if opts.StoppedGCAfter == 0 {
+		opts.StoppedGCAfter = DefaultStoppedGCAfter
+	}
 	return &Manager{
-		rt:        opts.Runtime,
-		ap:        opts.Agent,
-		clock:     opts.Clock,
-		baseImage: opts.BaseImage,
-		domain:    opts.Domain,
-		resolver:  opts.Resolver,
-		sandboxes: make(map[string]*Sandbox),
+		rt:             opts.Runtime,
+		ap:             opts.Agent,
+		clock:          opts.Clock,
+		baseImage:      opts.BaseImage,
+		domain:         opts.Domain,
+		resolver:       opts.Resolver,
+		freezeDuration: opts.FreezeDuration,
+		maxFrozen:      opts.MaxFrozen,
+		stoppedGCAfter: opts.StoppedGCAfter,
+		sandboxes:      make(map[string]*Sandbox),
 	}, nil
 }
 
@@ -316,8 +377,10 @@ func (m *Manager) SetTimeout(id string, timeout time.Duration) error {
 }
 
 // Connect renews the TTL on a live sandbox and returns the current
-// snapshot. A paused sandbox is unpaused through the runtime as part
-// of the call so data-plane traffic can resume immediately.
+// snapshot. A paused sandbox is resumed through the runtime: frozen
+// sandboxes get `docker unpause` (instant), stopped ones get `docker
+// start` followed by a fresh agent Ping + InitAgent so envd has the
+// access token again.
 func (m *Manager) Connect(ctx context.Context, id string, timeout time.Duration) (*Sandbox, error) {
 	m.mu.Lock()
 	s, ok := m.sandboxes[id]
@@ -330,26 +393,68 @@ func (m *Manager) Connect(ctx context.Context, id string, timeout time.Duration)
 		m.mu.Unlock()
 		return nil, ErrExpired
 	}
-	wasPaused := s.State == StatePaused
+	priorState := s.State
+	priorMode := s.PauseMode
 	s.ExpiresAt = now.Add(timeout)
 	m.mu.Unlock()
 
-	if wasPaused {
+	if priorState != StatePaused {
+		return s, nil
+	}
+
+	switch priorMode {
+	case PauseStopped:
+		if err := m.resumeStopped(ctx, s); err != nil {
+			return nil, fmt.Errorf("sandbox: connect %q: resume stopped: %w", id, err)
+		}
+	default:
 		if err := m.rt.Unpause(ctx, id); err != nil {
 			return nil, fmt.Errorf("sandbox: connect %q: unpause: %w", id, err)
 		}
-		m.mu.Lock()
-		s.State = StateRunning
-		m.mu.Unlock()
 	}
 
+	m.mu.Lock()
+	s.State = StateRunning
+	s.PauseMode = ""
+	s.PausedAt = time.Time{}
+	m.mu.Unlock()
 	return s, nil
 }
 
+// resumeStopped boots a demoted sandbox: `docker start`, re-resolve the
+// agent endpoint (bridge IP may have changed), then Ping + InitAgent so
+// envd has the access token and env vars it had at Create time.
+func (m *Manager) resumeStopped(ctx context.Context, s *Sandbox) error {
+	if err := m.rt.Start(ctx, s.ID); err != nil {
+		return fmt.Errorf("runtime start: %w", err)
+	}
+	host, port, err := m.rt.AgentEndpoint(s.ID)
+	if err != nil {
+		return fmt.Errorf("agent endpoint: %w", err)
+	}
+	endpoint := fmt.Sprintf("http://%s:%d", host, port)
+	if err := m.ap.Ping(ctx, endpoint); err != nil {
+		return fmt.Errorf("agent ping: %w", err)
+	}
+	if err := m.ap.InitAgent(ctx, endpoint, agent.InitConfig{
+		AccessToken:    s.EnvdToken,
+		EnvVars:        s.EnvVars,
+		DefaultUser:    defaultUser,
+		DefaultWorkdir: defaultWorkdir,
+	}); err != nil {
+		return fmt.Errorf("agent init: %w", err)
+	}
+	m.mu.Lock()
+	s.AgentHost = host
+	s.AgentPort = port
+	m.mu.Unlock()
+	return nil
+}
+
 // Pause freezes the container via runtime.Pause and flips the
-// sandbox's State to paused. The sandbox stays in the registry — its
-// TTL still ticks and data-plane traffic is routed to the same
-// endpoint once Connect unpauses it.
+// sandbox's State to paused with PauseMode=frozen. The sandbox stays
+// in the registry — Connect unpauses it. Long-paused sandboxes are
+// demoted to PauseStopped by the reaper; see EnforceTimeouts.
 func (m *Manager) Pause(ctx context.Context, id string) error {
 	m.mu.Lock()
 	s, ok := m.sandboxes[id]
@@ -368,6 +473,8 @@ func (m *Manager) Pause(ctx context.Context, id string) error {
 	}
 	m.mu.Lock()
 	s.State = StatePaused
+	s.PauseMode = PauseFrozen
+	s.PausedAt = m.clock.Now()
 	m.mu.Unlock()
 	return nil
 }
@@ -406,15 +513,21 @@ func (m *Manager) Snapshot(ctx context.Context, id, name string) (*SnapshotInfo,
 	}, nil
 }
 
-// EnforceTimeouts walks the registry for sandboxes whose ExpiresAt has
-// lapsed. Sandboxes with OnTimeoutKill are dropped from the registry
-// and their container is destroyed; sandboxes with OnTimeoutPause are
-// frozen via runtime.Pause and kept in the registry for a later
-// /connect to unpause. Already-paused sandboxes are skipped — once a
-// sandbox is paused its TTL no longer ticks. Returns the IDs of every
-// sandbox touched by this sweep (killed + paused) so callers can log
-// them. Container actions are best-effort — individual runtime failures
-// don't stop the sweep.
+// EnforceTimeouts walks the registry and applies the three scheduled
+// transitions:
+//
+//  1. Running sandboxes whose ExpiresAt has lapsed: OnTimeoutKill
+//     destroys them, OnTimeoutPause freezes them via runtime.Pause.
+//  2. Frozen sandboxes paused longer than FreezeDuration, or any excess
+//     beyond MaxFrozen (oldest PausedAt first): demoted via
+//     runtime.Stop to free host RAM.
+//  3. Stopped sandboxes paused longer than StoppedGCAfter: destroyed
+//     to reclaim disk.
+//
+// Returns the IDs touched by this sweep (killed + paused + demoted +
+// gc'd). Runtime errors are logged implicitly by being returned from
+// the underlying calls; failures don't abort the sweep so one stuck
+// sandbox can't starve the others.
 func (m *Manager) EnforceTimeouts(ctx context.Context) []string {
 	m.mu.Lock()
 	now := m.clock.Now()
@@ -424,8 +537,25 @@ func (m *Manager) EnforceTimeouts(ctx context.Context) []string {
 	}
 	var toKill []string
 	var toPause []expiredEntry
+	var toDemote []expiredEntry
+	var toGC []string
+
+	var frozen []expiredEntry
 	for id, s := range m.sandboxes {
 		if s.State == StatePaused {
+			switch s.PauseMode {
+			case PauseFrozen:
+				if m.freezeDuration > 0 && now.Sub(s.PausedAt) >= m.freezeDuration {
+					toDemote = append(toDemote, expiredEntry{id: id, sbx: s})
+				} else {
+					frozen = append(frozen, expiredEntry{id: id, sbx: s})
+				}
+			case PauseStopped:
+				if m.stoppedGCAfter > 0 && now.Sub(s.PausedAt) >= m.stoppedGCAfter {
+					toGC = append(toGC, id)
+					delete(m.sandboxes, id)
+				}
+			}
 			continue
 		}
 		if !s.ExpiresAt.After(now) {
@@ -437,13 +567,24 @@ func (m *Manager) EnforceTimeouts(ctx context.Context) []string {
 			}
 		}
 	}
+
+	// LRU eviction for the frozen cap: if we're over MaxFrozen after
+	// accounting for ones about to get demoted by age, demote the
+	// oldest-paused excess so the count lands at the cap.
+	if m.maxFrozen > 0 && len(frozen) > m.maxFrozen {
+		sort.Slice(frozen, func(i, j int) bool {
+			return frozen[i].sbx.PausedAt.Before(frozen[j].sbx.PausedAt)
+		})
+		excess := len(frozen) - m.maxFrozen
+		toDemote = append(toDemote, frozen[:excess]...)
+	}
 	m.mu.Unlock()
 
 	for _, id := range toKill {
 		_ = m.rt.Destroy(ctx, id)
 	}
 
-	touched := toKill
+	touched := append([]string(nil), toKill...)
 	for _, e := range toPause {
 		if err := m.rt.Pause(ctx, e.id); err != nil {
 			// Pause failed — fall back to destroy so we don't leave a
@@ -457,8 +598,27 @@ func (m *Manager) EnforceTimeouts(ctx context.Context) []string {
 		}
 		m.mu.Lock()
 		e.sbx.State = StatePaused
+		e.sbx.PauseMode = PauseFrozen
+		e.sbx.PausedAt = now
 		m.mu.Unlock()
 		touched = append(touched, e.id)
+	}
+	for _, e := range toDemote {
+		if err := m.rt.Stop(ctx, e.id); err != nil {
+			// Demote failed — leave the sandbox as-is; the next sweep
+			// will retry. Better to keep RAM for one more tick than
+			// orphan the container.
+			continue
+		}
+		m.mu.Lock()
+		e.sbx.PauseMode = PauseStopped
+		e.sbx.PausedAt = now
+		m.mu.Unlock()
+		touched = append(touched, e.id)
+	}
+	for _, id := range toGC {
+		_ = m.rt.Destroy(ctx, id)
+		touched = append(touched, id)
 	}
 	return touched
 }

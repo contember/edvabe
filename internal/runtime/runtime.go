@@ -26,11 +26,22 @@ type Runtime interface {
 	// Destroy stops and removes the sandbox.
 	Destroy(ctx context.Context, sandboxID string) error
 
-	// Pause freezes processes inside the sandbox (Phase 4).
+	// Pause freezes processes inside the sandbox (docker pause). Memory
+	// is held; resume via Unpause is instant.
 	Pause(ctx context.Context, sandboxID string) error
 
-	// Unpause thaws a previously-paused sandbox (Phase 4).
+	// Unpause thaws a previously-paused sandbox.
 	Unpause(ctx context.Context, sandboxID string) error
+
+	// Stop halts the container (docker stop). Process memory is lost,
+	// filesystem is preserved. Used as the demoted parking state for
+	// long-paused sandboxes — see sandbox.Manager.FreezeDuration.
+	Stop(ctx context.Context, sandboxID string) error
+
+	// Start boots a previously stopped container and re-resolves its
+	// agent endpoint (the bridge IP may change). Callers must Ping and
+	// re-InitAgent before forwarding data-plane traffic.
+	Start(ctx context.Context, sandboxID string) error
 
 	// Commit persists the sandbox filesystem as a new template image (Phase 4).
 	Commit(ctx context.Context, sandboxID, imageTag string) error

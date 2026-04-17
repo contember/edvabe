@@ -807,6 +807,236 @@ func (f *failingPauseRuntime) Pause(ctx context.Context, sandboxID string) error
 	return errors.New("pause kaputt")
 }
 
+// newTestManagerWithPolicy mirrors newTestManagerWithRuntime but lets
+// the test override the pause policy knobs. A zero value in opts is
+// left as-is so defaults still apply — override with a sentinel like
+// time.Nanosecond / 1 to exercise aggressive demotion / GC.
+func newTestManagerWithPolicy(t *testing.T, clk *fakeClock, freeze time.Duration, maxFrozen int, stoppedGC time.Duration) (*Manager, *noop.Runtime, *stubAgent) {
+	t.Helper()
+	rt := noop.New()
+	ap := &stubAgent{port: 49983}
+	m, err := NewManager(Options{
+		Runtime:        rt,
+		Agent:          ap,
+		Clock:          clk,
+		FreezeDuration: freeze,
+		MaxFrozen:      maxFrozen,
+		StoppedGCAfter: stoppedGC,
+	})
+	if err != nil {
+		t.Fatalf("NewManager: %v", err)
+	}
+	return m, rt, ap
+}
+
+func TestPauseRecordsModeAndPausedAt(t *testing.T) {
+	now := time.Date(2026, 4, 15, 12, 0, 0, 0, time.UTC)
+	clk := newFakeClock(now)
+	m, _ := newTestManagerWithRuntime(t, clk)
+	ctx := context.Background()
+
+	s, err := m.Create(ctx, CreateOptions{Timeout: time.Hour})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	clk.Advance(5 * time.Second)
+	if err := m.Pause(ctx, s.ID); err != nil {
+		t.Fatalf("Pause: %v", err)
+	}
+	got, _ := m.Get(s.ID)
+	if got.PauseMode != PauseFrozen {
+		t.Errorf("PauseMode = %q, want %q", got.PauseMode, PauseFrozen)
+	}
+	if !got.PausedAt.Equal(clk.Now()) {
+		t.Errorf("PausedAt = %v, want %v", got.PausedAt, clk.Now())
+	}
+}
+
+func TestEnforceTimeoutsDemotesFrozenAfterFreezeDuration(t *testing.T) {
+	now := time.Date(2026, 4, 15, 12, 0, 0, 0, time.UTC)
+	clk := newFakeClock(now)
+	// Aggressive freeze duration so the clock advance below triggers demote.
+	m, rt, _ := newTestManagerWithPolicy(t, clk, time.Minute, 10, time.Hour)
+	ctx := context.Background()
+
+	s, err := m.Create(ctx, CreateOptions{Timeout: 24 * time.Hour})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if err := m.Pause(ctx, s.ID); err != nil {
+		t.Fatalf("Pause: %v", err)
+	}
+	if !rt.IsPaused(s.ID) || rt.IsStopped(s.ID) {
+		t.Fatalf("pre-demote: IsPaused=%v IsStopped=%v", rt.IsPaused(s.ID), rt.IsStopped(s.ID))
+	}
+
+	clk.Advance(30 * time.Second)
+	if touched := m.EnforceTimeouts(ctx); len(touched) != 0 {
+		t.Errorf("early sweep touched %v", touched)
+	}
+
+	clk.Advance(31 * time.Second)
+	touched := m.EnforceTimeouts(ctx)
+	if len(touched) != 1 || touched[0] != s.ID {
+		t.Fatalf("demote sweep touched %v, want [%s]", touched, s.ID)
+	}
+	if !rt.IsStopped(s.ID) {
+		t.Error("runtime should be stopped after demote")
+	}
+	got, _ := m.Get(s.ID)
+	if got.PauseMode != PauseStopped {
+		t.Errorf("PauseMode = %q, want %q", got.PauseMode, PauseStopped)
+	}
+	if !got.PausedAt.Equal(clk.Now()) {
+		t.Errorf("PausedAt after demote = %v, want %v", got.PausedAt, clk.Now())
+	}
+}
+
+func TestEnforceTimeoutsEvictsOldestWhenMaxFrozenExceeded(t *testing.T) {
+	now := time.Date(2026, 4, 15, 12, 0, 0, 0, time.UTC)
+	clk := newFakeClock(now)
+	// FreezeDuration huge so only the LRU cap triggers demotion.
+	m, rt, _ := newTestManagerWithPolicy(t, clk, 30*24*time.Hour, 2, time.Hour)
+	ctx := context.Background()
+
+	ids := make([]string, 0, 3)
+	for i := 0; i < 3; i++ {
+		s, err := m.Create(ctx, CreateOptions{Timeout: 24 * time.Hour})
+		if err != nil {
+			t.Fatalf("Create %d: %v", i, err)
+		}
+		clk.Advance(10 * time.Second) // so PausedAt values differ
+		if err := m.Pause(ctx, s.ID); err != nil {
+			t.Fatalf("Pause %d: %v", i, err)
+		}
+		ids = append(ids, s.ID)
+	}
+
+	touched := m.EnforceTimeouts(ctx)
+	if len(touched) != 1 || touched[0] != ids[0] {
+		t.Fatalf("eviction touched %v, want [%s] (oldest)", touched, ids[0])
+	}
+	if !rt.IsStopped(ids[0]) {
+		t.Error("oldest frozen should be demoted to stopped")
+	}
+	if rt.IsStopped(ids[1]) || rt.IsStopped(ids[2]) {
+		t.Error("within-cap frozen should still be frozen")
+	}
+}
+
+func TestEnforceTimeoutsGCsStoppedAfterGCDuration(t *testing.T) {
+	now := time.Date(2026, 4, 15, 12, 0, 0, 0, time.UTC)
+	clk := newFakeClock(now)
+	m, rt, _ := newTestManagerWithPolicy(t, clk, time.Second, 10, 2*time.Second)
+	ctx := context.Background()
+
+	s, err := m.Create(ctx, CreateOptions{Timeout: 24 * time.Hour})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if err := m.Pause(ctx, s.ID); err != nil {
+		t.Fatalf("Pause: %v", err)
+	}
+	// Demote: advance past FreezeDuration.
+	clk.Advance(2 * time.Second)
+	if touched := m.EnforceTimeouts(ctx); len(touched) != 1 {
+		t.Fatalf("demote sweep touched %v, want 1", touched)
+	}
+	if !rt.IsStopped(s.ID) {
+		t.Fatal("runtime should be stopped after demote")
+	}
+	// Not yet GC'd.
+	clk.Advance(time.Second)
+	if touched := m.EnforceTimeouts(ctx); len(touched) != 0 {
+		t.Errorf("early GC touched %v", touched)
+	}
+	if _, err := m.Get(s.ID); err != nil {
+		t.Errorf("Get before GC = %v, want nil", err)
+	}
+	// GC: advance past StoppedGCAfter from the demote moment.
+	clk.Advance(2 * time.Second)
+	touched := m.EnforceTimeouts(ctx)
+	if len(touched) != 1 || touched[0] != s.ID {
+		t.Fatalf("GC sweep touched %v, want [%s]", touched, s.ID)
+	}
+	if _, err := m.Get(s.ID); !errors.Is(err, ErrNotFound) {
+		t.Errorf("Get after GC = %v, want ErrNotFound", err)
+	}
+}
+
+func TestConnectResumesStoppedSandbox(t *testing.T) {
+	now := time.Date(2026, 4, 15, 12, 0, 0, 0, time.UTC)
+	clk := newFakeClock(now)
+	m, rt, ap := newTestManagerWithPolicy(t, clk, time.Second, 10, time.Hour)
+	ctx := context.Background()
+
+	s, err := m.Create(ctx, CreateOptions{Timeout: 24 * time.Hour})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	initialPings := ap.pings
+	initialInits := ap.inits
+
+	if err := m.Pause(ctx, s.ID); err != nil {
+		t.Fatalf("Pause: %v", err)
+	}
+	clk.Advance(2 * time.Second)
+	m.EnforceTimeouts(ctx)
+	if !rt.IsStopped(s.ID) {
+		t.Fatal("precondition: sandbox should be stopped")
+	}
+
+	resumed, err := m.Connect(ctx, s.ID, 24*time.Hour)
+	if err != nil {
+		t.Fatalf("Connect: %v", err)
+	}
+	if resumed.State != StateRunning {
+		t.Errorf("State = %q, want running", resumed.State)
+	}
+	if resumed.PauseMode != "" {
+		t.Errorf("PauseMode = %q, want empty", resumed.PauseMode)
+	}
+	if rt.IsStopped(s.ID) {
+		t.Error("runtime still stopped after Connect")
+	}
+	if ap.pings <= initialPings {
+		t.Errorf("agent.Ping not called on resume: %d -> %d", initialPings, ap.pings)
+	}
+	if ap.inits <= initialInits {
+		t.Errorf("agent.InitAgent not called on resume: %d -> %d", initialInits, ap.inits)
+	}
+}
+
+func TestPausePolicyReflectsOptions(t *testing.T) {
+	clk := newFakeClock(time.Now())
+	m, _, _ := newTestManagerWithPolicy(t, clk, 2*time.Hour, 7, 48*time.Hour)
+	p := m.PausePolicy()
+	if p.FreezeDuration != 2*time.Hour {
+		t.Errorf("FreezeDuration = %v, want 2h", p.FreezeDuration)
+	}
+	if p.MaxFrozen != 7 {
+		t.Errorf("MaxFrozen = %d, want 7", p.MaxFrozen)
+	}
+	if p.StoppedGCAfter != 48*time.Hour {
+		t.Errorf("StoppedGCAfter = %v, want 48h", p.StoppedGCAfter)
+	}
+}
+
+func TestPausePolicyDefaults(t *testing.T) {
+	clk := newFakeClock(time.Now())
+	m, _ := newTestManager(t, clk)
+	p := m.PausePolicy()
+	if p.FreezeDuration != DefaultFreezeDuration {
+		t.Errorf("FreezeDuration = %v, want default", p.FreezeDuration)
+	}
+	if p.MaxFrozen != DefaultMaxFrozen {
+		t.Errorf("MaxFrozen = %d, want default", p.MaxFrozen)
+	}
+	if p.StoppedGCAfter != DefaultStoppedGCAfter {
+		t.Errorf("StoppedGCAfter = %v, want default", p.StoppedGCAfter)
+	}
+}
+
 func TestCreateDestroysContainerWhenReadyProbeFails(t *testing.T) {
 	clk := newFakeClock(time.Date(2026, 4, 15, 12, 0, 0, 0, time.UTC))
 	resolver := &fakeResolver{

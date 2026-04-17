@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"time"
@@ -88,6 +89,9 @@ func serveCmd(args []string) {
 	dnsListen := fs.String("dns-listen", "", "If set (e.g. \":53\"), start a UDP DNS server that answers A queries for *.<domain> with --dns-answer. Intended for Docker-in-Docker preview URLs.")
 	dnsAnswer := fs.String("dns-answer", "", "IPv4 address to return for A queries. Required when --dns-listen is set. Typically edvabe's own address on the shared Docker network.")
 	dnsUpstream := fs.String("dns-upstream", "127.0.0.11:53", "Upstream DNS server for out-of-domain queries (Docker's embedded resolver by default). Set empty to REFUSE instead of forwarding.")
+	freezeDuration := fs.Duration("pause-freeze-duration", envDurationOr("EDVABE_PAUSE_FREEZE_DURATION", sandbox.DefaultFreezeDuration), "How long a paused sandbox keeps holding RAM (docker pause) before being demoted to docker stop. Negative disables demotion.")
+	maxFrozen := fs.Int("max-frozen-sandboxes", envIntOr("EDVABE_MAX_FROZEN_SANDBOXES", sandbox.DefaultMaxFrozen), "How many sandboxes can be frozen (docker pause) at once. Further pauses demote the oldest. Negative disables the cap.")
+	stoppedGCAfter := fs.Duration("pause-gc-after", envDurationOr("EDVABE_PAUSE_GC_AFTER", sandbox.DefaultStoppedGCAfter), "How long a demoted (stopped) sandbox lingers before the reaper destroys it. Negative disables GC.")
 	_ = fs.Parse(args)
 	if *socket != "" {
 		if err := os.Setenv("DOCKER_HOST", "unix://"+*socket); err != nil {
@@ -160,10 +164,13 @@ func serveCmd(args []string) {
 		domain = fmt.Sprintf("localhost:%d", *port)
 	}
 	mgr, err := sandbox.NewManager(sandbox.Options{
-		Runtime:  rt,
-		Agent:    ap,
-		Domain:   domain,
-		Resolver: template.NewSandboxResolver(templateStore),
+		Runtime:        rt,
+		Agent:          ap,
+		Domain:         domain,
+		Resolver:       template.NewSandboxResolver(templateStore),
+		FreezeDuration: *freezeDuration,
+		MaxFrozen:      *maxFrozen,
+		StoppedGCAfter: *stoppedGCAfter,
 	})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "serve: init manager: %v\n", err)
@@ -270,6 +277,11 @@ func doctorCmd(args []string) {
 	err := doctor.Run(context.Background(), os.Stdout, doctor.Options{
 		Port:      *port,
 		BaseImage: *image,
+		PausePolicy: sandbox.PausePolicy{
+			FreezeDuration: envDurationOr("EDVABE_PAUSE_FREEZE_DURATION", sandbox.DefaultFreezeDuration),
+			MaxFrozen:      envIntOr("EDVABE_MAX_FROZEN_SANDBOXES", sandbox.DefaultMaxFrozen),
+			StoppedGCAfter: envDurationOr("EDVABE_PAUSE_GC_AFTER", sandbox.DefaultStoppedGCAfter),
+		},
 	})
 	if err != nil {
 		os.Exit(1)
@@ -374,4 +386,30 @@ func buildScratchDir() string {
 		return "edvabe-builds"
 	}
 	return filepath.Join(home, ".cache", "edvabe", "builds")
+}
+
+func envDurationOr(key string, fallback time.Duration) time.Duration {
+	v := os.Getenv(key)
+	if v == "" {
+		return fallback
+	}
+	d, err := time.ParseDuration(v)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "warning: %s=%q is not a valid duration, using default %s\n", key, v, fallback)
+		return fallback
+	}
+	return d
+}
+
+func envIntOr(key string, fallback int) int {
+	v := os.Getenv(key)
+	if v == "" {
+		return fallback
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "warning: %s=%q is not a valid integer, using default %d\n", key, v, fallback)
+		return fallback
+	}
+	return n
 }

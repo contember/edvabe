@@ -41,6 +41,9 @@ type Options struct {
 	// to upstream.CodeInterpreterTag. Its absence is informational, not
 	// a hard failure.
 	CodeInterpreterImage string
+	// PausePolicy, when non-zero, is surfaced as an info line so users
+	// can see the limits that `edvabe serve` will apply.
+	PausePolicy sandbox.PausePolicy
 }
 
 // Run executes each check in order, prints an aligned table to w, and
@@ -68,6 +71,7 @@ func Run(ctx context.Context, w io.Writer, opts Options) error {
 		checkImage(opts.EnvdSourceImage, "run `edvabe build-image`"),
 		checkImageOptional(opts.CodeInterpreterImage, "run `edvabe build-image --template=code-interpreter`"),
 		checkPortFree(opts.Port),
+		checkPausePolicy(opts.PausePolicy),
 	}
 
 	results := make([]checkResult, 0, len(checks))
@@ -209,6 +213,43 @@ func checkImageOptional(tag, hint string) checkFunc {
 		}
 		return checkResult{name: name, ok: true, detail: ""}
 	}
+}
+
+// checkPausePolicy is info-only — it surfaces the configured pause
+// limits so users can confirm the knobs they set via env / flags took
+// effect. Always reports OK; a missing policy renders as "default".
+func checkPausePolicy(p sandbox.PausePolicy) checkFunc {
+	return func(_ context.Context, _ *runState) checkResult {
+		if p == (sandbox.PausePolicy{}) {
+			p = sandbox.PausePolicy{
+				FreezeDuration: sandbox.DefaultFreezeDuration,
+				MaxFrozen:      sandbox.DefaultMaxFrozen,
+				StoppedGCAfter: sandbox.DefaultStoppedGCAfter,
+			}
+		}
+		detail := fmt.Sprintf("freeze=%s maxFrozen=%d gc=%s",
+			humanDuration(p.FreezeDuration),
+			p.MaxFrozen,
+			humanDuration(p.StoppedGCAfter),
+		)
+		return checkResult{name: "Pause policy", ok: true, detail: detail}
+	}
+}
+
+// humanDuration renders a duration with integer hour / day precision
+// when possible so "24h0m0s" becomes "24h" and "720h0m0s" becomes "30d".
+// Negative or zero values render as "off".
+func humanDuration(d time.Duration) string {
+	if d <= 0 {
+		return "off"
+	}
+	if d%(24*time.Hour) == 0 {
+		return fmt.Sprintf("%dd", int(d/(24*time.Hour)))
+	}
+	if d%time.Hour == 0 {
+		return fmt.Sprintf("%dh", int(d/time.Hour))
+	}
+	return d.String()
 }
 
 func checkPortFree(port int) checkFunc {

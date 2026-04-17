@@ -36,6 +36,8 @@ func (f *fakeRuntime) Create(context.Context, runtime.CreateRequest) (*runtime.S
 func (f *fakeRuntime) Destroy(context.Context, string) error { return nil }
 func (f *fakeRuntime) Pause(context.Context, string) error   { return nil }
 func (f *fakeRuntime) Unpause(context.Context, string) error { return nil }
+func (f *fakeRuntime) Stop(context.Context, string) error    { return nil }
+func (f *fakeRuntime) Start(context.Context, string) error   { return nil }
 func (f *fakeRuntime) Commit(context.Context, string, string) error {
 	return errors.New("not implemented")
 }

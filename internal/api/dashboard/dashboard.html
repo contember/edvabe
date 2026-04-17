@@ -39,6 +39,8 @@ tr:hover td{background:rgba(136,198,255,.04)}
 .state{display:inline-block;padding:2px 8px;border-radius:12px;font-size:11px;font-weight:600;text-transform:uppercase}
 .state-running{background:rgba(63,185,80,.15);color:var(--green)}
 .state-paused{background:rgba(210,153,34,.15);color:var(--yellow)}
+.pause-mode{display:inline-block;margin-left:6px;padding:1px 6px;border-radius:10px;font-size:10px;font-weight:500;text-transform:lowercase;letter-spacing:.02em;background:rgba(88,166,255,.12);color:var(--blue)}
+.pause-mode-stopped{background:rgba(132,141,151,.18);color:var(--text-dim)}
 
 .build-status{font-size:11px;font-weight:600;text-transform:uppercase}
 .build-ready{color:var(--green)}
@@ -109,13 +111,29 @@ function formatMeta(meta) {
   return Object.entries(meta).map(([k, v]) => k + '=' + v).join(', ');
 }
 
-function renderCards(summary) {
+function formatDuration(sec) {
+  if (!sec || sec < 0) return 'disabled';
+  if (sec < 60) return sec + 's';
+  if (sec < 3600) return Math.floor(sec / 60) + 'm';
+  if (sec < 86400) return Math.floor(sec / 3600) + 'h';
+  return Math.floor(sec / 86400) + 'd';
+}
+
+function renderCards(summary, policy) {
+  const pauseSub = summary.paused > 0
+    ? `<div style="font-size:11px;color:var(--text-muted);margin-top:4px">${summary.frozen} in memory · ${summary.stopped} on disk</div>`
+    : '';
+  const policyLine = policy
+    ? `freeze ${formatDuration(policy.freezeDurationSec)} · max ${policy.maxFrozen} frozen · gc ${formatDuration(policy.stoppedGCAfterSec)}`
+    : '';
   document.getElementById('cards').innerHTML = `
     <div class="card"><div class="label">Total sandboxes</div><div class="value">${summary.totalSandboxes}</div></div>
     <div class="card"><div class="label">Running</div><div class="value green">${summary.running}</div></div>
-    <div class="card"><div class="label">Paused</div><div class="value yellow">${summary.paused}</div></div>
+    <div class="card"><div class="label">Paused</div><div class="value yellow">${summary.paused}</div>${pauseSub}</div>
     <div class="card"><div class="label">Templates</div><div class="value">${summary.totalTemplates}</div></div>
   `;
+  const indicator = document.getElementById('refresh-indicator');
+  indicator.title = 'pause policy: ' + policyLine;
 }
 
 function renderSandboxes(sandboxes) {
@@ -129,12 +147,24 @@ function renderSandboxes(sandboxes) {
       <th>ID</th><th>Template</th><th>State</th><th>Created</th><th>TTL</th><th>Metadata</th><th></th>
     </tr></thead><tbody>`;
   for (const s of sandboxes) {
-    const ttl = s.state === 'paused' ? { text: 'paused', cls: '' } : formatTTL(s.expiresAt);
+    let ttl;
+    if (s.state === 'paused') {
+      const label = s.pauseMode === 'stopped' ? 'on disk' : 'in memory';
+      ttl = { text: 'paused · ' + (s.pausedAt ? formatAge(s.pausedAt) : label), cls: '' };
+    } else {
+      ttl = formatTTL(s.expiresAt);
+    }
+    let modeBadge = '';
+    if (s.state === 'paused' && s.pauseMode) {
+      const cls = s.pauseMode === 'stopped' ? 'pause-mode pause-mode-stopped' : 'pause-mode';
+      const label = s.pauseMode === 'stopped' ? 'disk' : 'memory';
+      modeBadge = `<span class="${cls}" title="${s.pauseMode}">${label}</span>`;
+    }
     const meta = formatMeta(s.metadata);
     html += `<tr>
       <td class="mono id-cell" title="${s.id}">${s.id}</td>
       <td class="mono">${s.templateID}${s.alias ? ' <span class="meta">(' + s.alias + ')</span>' : ''}</td>
-      <td><span class="state state-${s.state}">${s.state}</span></td>
+      <td><span class="state state-${s.state}">${s.state}</span>${modeBadge}</td>
       <td title="${s.createdAt}">${formatAge(s.createdAt)}</td>
       <td class="ttl ${ttl.cls}">${ttl.text}</td>
       <td class="meta" title="${meta}">${meta || '<span style="color:var(--text-muted)">&mdash;</span>'}</td>
@@ -174,7 +204,7 @@ async function fetchOverview() {
     const resp = await fetch('/dashboard/api/overview');
     if (!resp.ok) throw new Error(resp.statusText);
     const data = await resp.json();
-    renderCards(data.summary);
+    renderCards(data.summary, data.pausePolicy);
     renderSandboxes(data.sandboxes);
     renderTemplates(data.templates);
     document.getElementById('refresh-indicator').textContent =

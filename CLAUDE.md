@@ -61,8 +61,14 @@ you need to violate one.
 6. **Templates are Docker images.** Full stop. No rootfs conversion, no
    ext4 builds, no Firecracker snapshot format.
 
-7. **Pause/resume is `docker pause` / `docker commit`.** It is not a
-   live memory snapshot. Document the caveat in user-facing messages.
+7. **Pause/resume is `docker pause` → `docker unpause`, with an age/cap
+   demote to `docker stop` → `docker start`.** Freshly-paused sandboxes
+   hold RAM (instant resume); after `EDVABE_PAUSE_FREEZE_DURATION` or
+   past the `EDVABE_MAX_FROZEN_SANDBOXES` cap (LRU on `PausedAt`) they
+   are demoted via `docker stop` (in-memory state lost, resume requires
+   a fresh agent InitAgent). Stopped sandboxes are GC'd after
+   `EDVABE_PAUSE_GC_AFTER`. No `docker commit`, no memory snapshot —
+   document the caveat in user-facing messages.
 
 8. **Atomic git commits with explicit file lists** — `git add path/to/a
    path/to/b && git commit -m "..."` in one bash command. Never
