@@ -5,6 +5,8 @@ All notable changes to edvabe land here. Format roughly follows
 
 ## Unreleased
 
+## v0.2.0 — 2026-04-24
+
 ### Fixed
 
 - `SetTimeout` no longer returns `ErrExpired` (410) for a paused
