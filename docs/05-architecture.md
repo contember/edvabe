@@ -365,6 +365,46 @@ Phase 5 if wanted.
   check `X-Access-Token`. It just forwards the header. envd verifies it
   against the token we told it about via `/init`.
 
+## Sandbox registry persistence
+
+edvabe holds its sandbox registry in memory (`internal/sandbox/manager.go`
+→ `sandboxes map[string]*Sandbox`). There is no SQLite, no JSON state
+file, no Redis. The source of truth for "which sandboxes exist" is
+the Docker daemon itself: every sandbox container is stamped with
+labels that encode the identity fields a future edvabe process needs
+to reconstruct the in-memory entry.
+
+On startup, `serve` calls `Manager.Rehydrate`, which asks the runtime
+for every `edvabe.managed=true` container and rebuilds the registry
+entry for each. Labels stamped at Create time:
+
+| Label | Purpose |
+|---|---|
+| `edvabe.managed=true` | filter key for `ListManaged` |
+| `edvabe.sandbox.id` | registry key — same as container name |
+| `edvabe.sandbox.template.id` | template the sandbox was built from |
+| `edvabe.sandbox.template.alias` | optional alias (e.g. `code-interpreter-v1`) |
+| `edvabe.sandbox.token.envd` | envd access token minted at Create |
+| `edvabe.sandbox.token.traffic` | traffic token minted at Create |
+| `edvabe.sandbox.ontimeout` | `kill` or `pause` |
+| `edvabe.meta.<k>` | user-supplied metadata, one per key |
+
+Fields derivable from `docker inspect` (CPU/memory caps, env vars,
+container created-at, running/paused/exited state) are NOT stamped
+as labels — reading them off the live container avoids drift.
+
+Mutable fields — `ExpiresAt`, `PausedAt` — cannot be persisted in
+labels (Docker labels are immutable after Create) so they are reset
+on rehydration: running sandboxes get `now + DefaultTimeout` (SDK
+usually re-extends shortly after), paused sandboxes get a past
+`ExpiresAt` (their lifecycle is ruled by `FreezeDuration` /
+`StoppedGCAfter`, not the running-TTL check).
+
+Pre-rehydration containers (created before v0.1.2) still reconstruct
+with state + metadata + resource limits, but their envd/traffic
+tokens cannot be recovered. SDK reconnect against those sandboxes
+fails envd auth — operator should destroy and recreate.
+
 ## Sandbox container hardening (or lack thereof)
 
 Sandbox containers are created with `seccomp=unconfined` and

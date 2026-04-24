@@ -177,6 +177,12 @@ func serveCmd(args []string) {
 		os.Exit(1)
 	}
 
+	if n, err := mgr.Rehydrate(context.Background(), sandbox.DefaultTimeout); err != nil {
+		slog.Warn("rehydrate failed; starting with empty sandbox registry", "err", err)
+	} else if n > 0 {
+		slog.Info("rehydrated sandboxes from existing containers", "count", n)
+	}
+
 	fileCache, err := filecache.New(fileCacheDir())
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "serve: init file cache: %v\n", err)

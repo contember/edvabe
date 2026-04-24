@@ -199,6 +199,60 @@ func NewManager(opts Options) (*Manager, error) {
 // Domain is the host:port edvabe reports in Sandbox responses.
 func (m *Manager) Domain() string { return m.domain }
 
+// Rehydrate repopulates the sandbox registry from containers already on
+// the runtime. Called once on startup so paused / running sandboxes
+// survive edvabe restarts. Sandbox-level metadata (template id, tokens,
+// on-timeout) is recovered from Docker labels stamped at Create time;
+// Mutable fields that aren't persisted (ExpiresAt, PausedAt) get
+// defaults: ExpiresAt = now + defaultTimeout for running sandboxes
+// (SDK typically re-extends via SetTimeout anyway), PausedAt = now for
+// paused sandboxes (the reaper will then hold them for FreezeDuration
+// before demoting, which is conservative but safe).
+//
+// Per-container failures are logged and skipped — one orphan must not
+// prevent edvabe from starting. Containers labeled edvabe.managed=true
+// but missing the sandbox-id label are left alone; the operator can
+// reap them by hand.
+func (m *Manager) Rehydrate(ctx context.Context, defaultTimeout time.Duration) (int, error) {
+	if defaultTimeout <= 0 {
+		defaultTimeout = DefaultTimeout
+	}
+	managed, err := m.rt.ListManaged(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("sandbox: rehydrate: list managed: %w", err)
+	}
+
+	now := m.clock.Now()
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	n := 0
+	for _, mc := range managed {
+		// Skip sandboxes already live in the registry — a later
+		// Rehydrate call (or a second one on a warmed Manager) must
+		// not clobber in-memory mutable state with stale labels.
+		if _, exists := m.sandboxes[mc.SandboxID]; exists {
+			continue
+		}
+		s := sandboxFromManaged(mc)
+		if s.State == StatePaused {
+			s.PausedAt = now
+			// Give paused sandboxes a nominal ExpiresAt in the past so
+			// the running-TTL reaper ignores them (only the pause-cycle
+			// reaper applies). Connect now skips ExpiresAt for paused
+			// sandboxes (see manager.Connect).
+			s.ExpiresAt = mc.CreatedAt
+		} else {
+			s.ExpiresAt = now.Add(defaultTimeout)
+		}
+		if s.OnTimeout == "" {
+			s.OnTimeout = OnTimeoutKill
+		}
+		m.sandboxes[mc.SandboxID] = s
+		n++
+	}
+	return n, nil
+}
+
 // CreateOptions is the subset of the NewSandbox request body the Manager
 // cares about. The control-plane handler translates HTTP JSON into this.
 type CreateOptions struct {
@@ -255,6 +309,14 @@ func (m *Manager) Create(ctx context.Context, opts CreateOptions) (*Sandbox, err
 	envdToken := NewEnvdToken()
 	trafficToken := NewTrafficToken()
 
+	labels := buildSandboxLabels(&Sandbox{
+		TemplateID:   templateID,
+		Alias:        opts.Alias,
+		EnvdToken:    envdToken,
+		TrafficToken: trafficToken,
+		OnTimeout:    opts.OnTimeout,
+	})
+
 	handle, err := m.rt.Create(ctx, runtime.CreateRequest{
 		SandboxID:  id,
 		Image:      resolution.ImageTag,
@@ -267,6 +329,7 @@ func (m *Manager) Create(ctx context.Context, opts CreateOptions) (*Sandbox, err
 		ReadyCmd:   resolution.ReadyCmd,
 		CPUCount:   cpuCount,
 		MemoryMB:   memoryMB,
+		Labels:     labels,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("sandbox: create %q: runtime: %w", id, err)

@@ -57,6 +57,50 @@ type Runtime interface {
 	// AgentEndpoint tells the reverse proxy where this sandbox's agent
 	// listens. Returns host and port reachable from the edvabe process.
 	AgentEndpoint(sandboxID string) (host string, port int, err error)
+
+	// ListManaged returns every edvabe-managed container currently on
+	// the host, including paused and stopped ones. Used on startup to
+	// rehydrate the sandbox registry after edvabe restarts. Containers
+	// in transitional states (dead, removing, created-but-not-started)
+	// are filtered out.
+	ListManaged(ctx context.Context) ([]ManagedContainer, error)
+}
+
+// LabelMetaPrefix is the Docker-label prefix under which the runtime
+// stamps caller-supplied CreateRequest.Metadata. Shared across
+// runtimes (docker, noop) and the sandbox package's rehydration
+// reader so the stamping and extraction stay in sync.
+const LabelMetaPrefix = "edvabe.meta."
+
+// ContainerState is the normalized runtime state reported by ListManaged.
+// Backends map their native states into this small set so the sandbox
+// manager doesn't need to know Docker-specific strings.
+type ContainerState string
+
+const (
+	ContainerStateRunning ContainerState = "running"
+	ContainerStatePaused  ContainerState = "paused"  // docker pause — RAM held
+	ContainerStateStopped ContainerState = "stopped" // docker stop — RAM freed
+)
+
+// ManagedContainer is the runtime's view of a labeled container found
+// by ListManaged. All sandbox-specific interpretation of Labels/EnvVars
+// lives in the sandbox package — the runtime is dumb about semantics.
+type ManagedContainer struct {
+	SandboxID   string
+	ContainerID string
+	Image       string
+	Labels      map[string]string
+	EnvVars     map[string]string
+	State       ContainerState
+	CPUCount    int
+	MemoryMB    int
+	CreatedAt   time.Time
+	// AgentHost / AgentPort are populated for running and paused-frozen
+	// containers (IP is assigned). Stopped containers have AgentHost ""
+	// — the IP is re-resolved on Start.
+	AgentHost string
+	AgentPort int
 }
 
 // CreateRequest is the input to Runtime.Create.
@@ -85,6 +129,13 @@ type CreateRequest struct {
 	CPUCount int
 	// MemoryMB caps the sandbox's RSS. Zero means unlimited.
 	MemoryMB int
+	// Labels is an arbitrary map of Docker-labels the caller wants
+	// stamped on the container. Sandbox manager uses it to persist
+	// sandbox-level metadata (template id, tokens, on-timeout) so
+	// Rehydrate can reconstruct the in-memory registry after edvabe
+	// restarts. Runtime-owned keys (edvabe.managed, edvabe.sandbox.id,
+	// edvabe.meta.*) still win if they collide.
+	Labels map[string]string
 }
 
 // SandboxHandle is the runtime's view of a created sandbox.

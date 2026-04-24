@@ -17,6 +17,7 @@ type entry struct {
 	handle   *runtime.SandboxHandle
 	image    string
 	envs     map[string]string
+	labels   map[string]string
 	startCmd string
 	readyCmd string
 	cpuCount int
@@ -59,10 +60,23 @@ func (r *Runtime) Create(ctx context.Context, req runtime.CreateRequest) (*runti
 		AgentPort:   port,
 		CreatedAt:   time.Now(),
 	}
+	// Mirror the docker runtime's label-stamping: caller labels plus
+	// edvabe.meta.* for user metadata. Keeps the noop runtime faithful
+	// so ListManaged-based tests round-trip the same data that a real
+	// restart would.
+	labels := copyStrMap(req.Labels)
+	if labels == nil {
+		labels = map[string]string{}
+	}
+	for k, v := range req.Metadata {
+		labels[runtime.LabelMetaPrefix+k] = v
+	}
+
 	r.sandboxes[req.SandboxID] = &entry{
 		handle:   h,
 		image:    req.Image,
 		envs:     copyStrMap(req.EnvVars),
+		labels:   labels,
 		startCmd: req.StartCmd,
 		readyCmd: req.ReadyCmd,
 		cpuCount: req.CPUCount,
@@ -206,6 +220,43 @@ func (r *Runtime) BuildImage(ctx context.Context, req runtime.BuildRequest) erro
 	defer r.mu.Unlock()
 	r.images[req.Tag] = true
 	return nil
+}
+
+// ListManaged returns every tracked sandbox as a ManagedContainer.
+// Unit tests use this path to exercise Rehydrate logic without a real
+// Docker daemon — seed entries with Create first, optionally
+// transition them via Pause/Stop.
+func (r *Runtime) ListManaged(ctx context.Context) ([]runtime.ManagedContainer, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	out := make([]runtime.ManagedContainer, 0, len(r.sandboxes))
+	for id, e := range r.sandboxes {
+		state := runtime.ContainerStateRunning
+		switch {
+		case e.stopped:
+			state = runtime.ContainerStateStopped
+		case e.paused:
+			state = runtime.ContainerStatePaused
+		}
+		host := e.handle.AgentHost
+		if state == runtime.ContainerStateStopped {
+			host = ""
+		}
+		out = append(out, runtime.ManagedContainer{
+			SandboxID:   id,
+			ContainerID: e.handle.ContainerID,
+			Image:       e.image,
+			Labels:      copyStrMap(e.labels),
+			EnvVars:     copyStrMap(e.envs),
+			State:       state,
+			CPUCount:    e.cpuCount,
+			MemoryMB:    e.memoryMB,
+			CreatedAt:   e.handle.CreatedAt,
+			AgentHost:   host,
+			AgentPort:   e.handle.AgentPort,
+		})
+	}
+	return out, nil
 }
 
 func (r *Runtime) AgentEndpoint(sandboxID string) (host string, port int, err error) {
