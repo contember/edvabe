@@ -631,6 +631,41 @@ func TestConnectUnpausesPausedSandbox(t *testing.T) {
 	}
 }
 
+func TestConnectResumesPausedSandboxPastOriginalTTL(t *testing.T) {
+	// Regression: previously Connect checked ExpiresAt before the state,
+	// so a sandbox paused past its original TTL returned ErrExpired and
+	// could never be resumed. Paused sandboxes follow a separate
+	// lifecycle (FreezeDuration / StoppedGCAfter), so the running-TTL
+	// check must not fire for them.
+	clk := newFakeClock(time.Date(2026, 4, 15, 12, 0, 0, 0, time.UTC))
+	m, rt := newTestManagerWithRuntime(t, clk)
+	ctx := context.Background()
+
+	s, err := m.Create(ctx, CreateOptions{Timeout: 30 * time.Second})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if err := m.Pause(ctx, s.ID); err != nil {
+		t.Fatalf("Pause: %v", err)
+	}
+	clk.Advance(5 * time.Minute) // well past the 30s TTL
+
+	resumed, err := m.Connect(ctx, s.ID, 2*time.Minute)
+	if err != nil {
+		t.Fatalf("Connect on paused+past-TTL sandbox: %v", err)
+	}
+	if rt.IsPaused(s.ID) {
+		t.Error("runtime still paused after Connect")
+	}
+	if resumed.State != StateRunning {
+		t.Errorf("state after Connect = %q, want running", resumed.State)
+	}
+	wantExpiry := clk.Now().Add(2 * time.Minute)
+	if !resumed.ExpiresAt.Equal(wantExpiry) {
+		t.Errorf("ExpiresAt = %v, want %v", resumed.ExpiresAt, wantExpiry)
+	}
+}
+
 func TestSnapshotCommitsRuntimeImage(t *testing.T) {
 	clk := newFakeClock(time.Date(2026, 4, 15, 12, 0, 0, 0, time.UTC))
 	m, rt := newTestManagerWithRuntime(t, clk)

@@ -420,7 +420,11 @@ func (m *Manager) Connect(ctx context.Context, id string, timeout time.Duration)
 		return nil, ErrNotFound
 	}
 	now := m.clock.Now()
-	if !s.ExpiresAt.After(now) {
+	// ExpiresAt tracks the running-sandbox TTL. Paused sandboxes have
+	// their own lifecycle (FreezeDuration → demote, StoppedGCAfter →
+	// destroy), so the expiry check shouldn't block resuming them —
+	// otherwise any pause that outlives the original TTL is un-resumable.
+	if s.State != StatePaused && !s.ExpiresAt.After(now) {
 		m.mu.Unlock()
 		return nil, ErrExpired
 	}
