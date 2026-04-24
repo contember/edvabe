@@ -3,6 +3,17 @@
 All notable changes to edvabe land here. Format roughly follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## Unreleased
+
+### Changed
+
+- Sandbox containers now start with `seccomp=unconfined` and
+  `apparmor=unconfined` security options. Unblocks tools that create
+  user namespaces inside the sandbox — notably `bwrap`, which bun's
+  install-script sandbox shells out to on Linux. Consistent with the
+  single-user local-dev threat model (see `docs/05-architecture.md`).
+  Existing sandboxes must be recreated to pick up the change.
+
 ## v0.1.0 — 2026-04-15
 
 First usable release. Phase 1 goal met: a user can run `edvabe serve`

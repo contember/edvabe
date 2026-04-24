@@ -51,7 +51,16 @@ func (r *Runtime) Create(ctx context.Context, req runtime.CreateRequest) (*runti
 		Env:    envMapToSliceWithEdvabeInit(req.EnvVars, req.StartCmd, req.ReadyCmd),
 		Labels: labels,
 	}
-	hostCfg := &container.HostConfig{Mounts: mounts}
+	// Relax the default seccomp + AppArmor profiles so tools that create
+	// user namespaces (bwrap → used by bun's install-script sandbox,
+	// podman, flatpak-builder, …) work inside the sandbox container.
+	// Safe under edvabe's single-user local-dev threat model; apparmor=
+	// unconfined is silently ignored on hosts without AppArmor (macOS
+	// Docker Desktop, Arch, Fedora).
+	hostCfg := &container.HostConfig{
+		Mounts:      mounts,
+		SecurityOpt: []string{"seccomp=unconfined", "apparmor=unconfined"},
+	}
 	if r.network != "" {
 		hostCfg.NetworkMode = container.NetworkMode(r.network)
 	}

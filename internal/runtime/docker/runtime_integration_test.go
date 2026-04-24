@@ -226,6 +226,36 @@ func TestDockerRuntimeCreateSkipsZeroResourceLimits(t *testing.T) {
 	}
 }
 
+func TestDockerRuntimeCreateRelaxesSeccompAndAppArmor(t *testing.T) {
+	r := newTestRuntime(t)
+	ctx := context.Background()
+
+	sid := uniqueSandboxID(t)
+	t.Cleanup(func() { _ = r.Destroy(ctx, sid) })
+
+	if _, err := r.Create(ctx, runtime.CreateRequest{
+		SandboxID: sid,
+		Image:     testImage,
+	}); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	inspect, err := r.cli.ContainerInspect(ctx, sid, client.ContainerInspectOptions{})
+	if err != nil {
+		t.Fatalf("ContainerInspect: %v", err)
+	}
+
+	got := map[string]bool{}
+	for _, opt := range inspect.Container.HostConfig.SecurityOpt {
+		got[opt] = true
+	}
+	for _, want := range []string{"seccomp=unconfined", "apparmor=unconfined"} {
+		if !got[want] {
+			t.Errorf("SecurityOpt missing %q; got %v", want, inspect.Container.HostConfig.SecurityOpt)
+		}
+	}
+}
+
 func TestDockerRuntimeCreateRequiresID(t *testing.T) {
 	r := newTestRuntime(t)
 	ctx := context.Background()

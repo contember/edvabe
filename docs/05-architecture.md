@@ -365,6 +365,30 @@ Phase 5 if wanted.
   check `X-Access-Token`. It just forwards the header. envd verifies it
   against the token we told it about via `/init`.
 
+## Sandbox container hardening (or lack thereof)
+
+Sandbox containers are created with `seccomp=unconfined` and
+`apparmor=unconfined` (see `internal/runtime/docker/create.go`). This
+is a deliberate relaxation of Docker's default profile, and it matters
+because:
+
+- Modern tooling inside sandboxes — bun's install-script sandbox
+  (`bwrap`), podman-in-sandbox, flatpak-builder, and similar — create
+  new user namespaces. Docker's default seccomp profile and the
+  host's AppArmor profile (Ubuntu 24.04+ ships
+  `kernel.apparmor_restrict_unprivileged_userns=1`) both block that,
+  so bwrap fails with `No permissions to create new namespace`.
+- edvabe's threat model is single-user local dev (golden rule #5 in
+  `CLAUDE.md`). The sandbox already runs arbitrary user code as root
+  in a container on the user's laptop, so tightening seccomp buys
+  little and breaks real tools.
+
+`apparmor=unconfined` is silently ignored on hosts without AppArmor
+(macOS Docker Desktop, Arch, Fedora), so the pair is portable.
+
+If you ever move edvabe toward a multi-tenant or hosted posture, this
+is one of the first lines to revisit.
+
 ## Routing by header
 
 `internal/api/dispatch.go`:
