@@ -28,10 +28,6 @@ const (
 	// LabelManaged is a truthy marker so operators can filter edvabe's
 	// containers apart from hand-launched ones.
 	LabelManaged = "edvabe.managed"
-	// LabelMetaPrefix is prepended to keys in CreateRequest.Metadata so
-	// user metadata can't collide with edvabe's own labels.
-	LabelMetaPrefix = "edvabe.meta."
-
 	defaultAgentPort = 49983
 )
 

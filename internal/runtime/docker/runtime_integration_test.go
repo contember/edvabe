@@ -98,7 +98,7 @@ func TestDockerRuntimeCreateInspectDestroy(t *testing.T) {
 	if got := inspect.Container.Config.Labels[LabelSandboxID]; got != sid {
 		t.Errorf("label %s = %q, want %q", LabelSandboxID, got, sid)
 	}
-	if got := inspect.Container.Config.Labels[LabelMetaPrefix+"owner"]; got != "runtime-test" {
+	if got := inspect.Container.Config.Labels[runtime.LabelMetaPrefix+"owner"]; got != "runtime-test" {
 		t.Errorf("metadata label missing: got %q", got)
 	}
 
@@ -253,6 +253,54 @@ func TestDockerRuntimeCreateRelaxesSeccompAndAppArmor(t *testing.T) {
 		if !got[want] {
 			t.Errorf("SecurityOpt missing %q; got %v", want, inspect.Container.HostConfig.SecurityOpt)
 		}
+	}
+}
+
+func TestDockerRuntimeListManagedReturnsLabeledContainers(t *testing.T) {
+	r := newTestRuntime(t)
+	ctx := context.Background()
+
+	sid := uniqueSandboxID(t)
+	t.Cleanup(func() { _ = r.Destroy(ctx, sid) })
+
+	if _, err := r.Create(ctx, runtime.CreateRequest{
+		SandboxID: sid,
+		Image:     testImage,
+		Metadata:  map[string]string{"owner": "alice"},
+		Labels:    map[string]string{"edvabe.sandbox.template.id": "base"},
+	}); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	managed, err := r.ListManaged(ctx)
+	if err != nil {
+		t.Fatalf("ListManaged: %v", err)
+	}
+
+	var found *runtime.ManagedContainer
+	for i := range managed {
+		if managed[i].SandboxID == sid {
+			found = &managed[i]
+			break
+		}
+	}
+	if found == nil {
+		t.Fatalf("ListManaged did not return sandbox %q; got %d entries", sid, len(managed))
+	}
+	if found.State != runtime.ContainerStateRunning {
+		t.Errorf("State = %q, want running", found.State)
+	}
+	if found.Labels["edvabe.sandbox.template.id"] != "base" {
+		t.Errorf("template-id label not recovered: %v", found.Labels)
+	}
+	if found.Labels["edvabe.meta.owner"] != "alice" {
+		t.Errorf("metadata label not recovered: %v", found.Labels)
+	}
+	if found.AgentHost == "" {
+		t.Errorf("AgentHost empty for running container")
+	}
+	if found.AgentPort != 49983 {
+		t.Errorf("AgentPort = %d, want 49983", found.AgentPort)
 	}
 }
 

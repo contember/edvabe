@@ -47,6 +47,9 @@ func (f *fakeRuntime) Stats(context.Context, string) (*runtime.Stats, error) {
 func (f *fakeRuntime) AgentEndpoint(string) (string, int, error) {
 	return "", 0, errors.New("not implemented")
 }
+func (f *fakeRuntime) ListManaged(context.Context) ([]runtime.ManagedContainer, error) {
+	return nil, nil
+}
 
 func (f *fakeRuntime) BuildImage(ctx context.Context, req runtime.BuildRequest) error {
 	f.mu.Lock()

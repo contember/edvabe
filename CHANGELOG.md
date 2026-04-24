@@ -3,6 +3,35 @@
 All notable changes to edvabe land here. Format roughly follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## Unreleased
+
+### Fixed
+
+- `SetTimeout` no longer returns `ErrExpired` (410) for a paused
+  sandbox whose original running-TTL has lapsed — same state-guard
+  the `Connect` path got in v0.1.1. Matters when SDK code calls
+  `sandbox.setTimeout()` on a paused sandbox ahead of `connect()`.
+
+### Added
+
+- **Sandbox registry rehydration on startup.** `edvabe serve` now
+  enumerates every `edvabe.managed=true` container on the Docker
+  daemon and rebuilds its in-memory sandbox registry from Docker
+  labels + container state. Paused sandboxes survive edvabe
+  restarts and SDK `reconnect(sandboxId)` works across them. New
+  sandbox-level labels (stamped at Create time):
+  - `edvabe.sandbox.template.id`
+  - `edvabe.sandbox.template.alias`
+  - `edvabe.sandbox.token.envd`
+  - `edvabe.sandbox.token.traffic`
+  - `edvabe.sandbox.ontimeout`
+
+  Containers created before this release (missing the new labels)
+  still rehydrate with `State` / `PauseMode` / resource limits /
+  metadata intact, and remain destroyable. The envd access token
+  is not recoverable for them, so SDK reconnect against pre-upgrade
+  sandboxes will fail envd auth — destroy and recreate.
+
 ## v0.1.1 — 2026-04-24
 
 ### Fixed

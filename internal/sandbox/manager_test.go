@@ -305,6 +305,34 @@ func TestSetTimeoutOnExpired(t *testing.T) {
 	}
 }
 
+func TestSetTimeoutExtendsPausedSandboxPastOriginalTTL(t *testing.T) {
+	// Mirror of the Connect fix: SetTimeout on a paused sandbox whose
+	// running-TTL has lapsed must succeed, because the SDK reconnect
+	// flow can call setTimeout() before connect(), and paused
+	// sandboxes live on the pause-cycle reaper, not the running-TTL.
+	clk := newFakeClock(time.Date(2026, 4, 15, 12, 0, 0, 0, time.UTC))
+	m, _ := newTestManagerWithRuntime(t, clk)
+	ctx := context.Background()
+
+	s, err := m.Create(ctx, CreateOptions{Timeout: 30 * time.Second})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if err := m.Pause(ctx, s.ID); err != nil {
+		t.Fatalf("Pause: %v", err)
+	}
+	clk.Advance(5 * time.Minute)
+
+	if err := m.SetTimeout(s.ID, 10*time.Minute); err != nil {
+		t.Errorf("SetTimeout on paused+past-TTL = %v, want nil", err)
+	}
+	got, _ := m.Get(s.ID)
+	wantExpiry := clk.Now().Add(10 * time.Minute)
+	if !got.ExpiresAt.Equal(wantExpiry) {
+		t.Errorf("ExpiresAt after SetTimeout = %v, want %v", got.ExpiresAt, wantExpiry)
+	}
+}
+
 func TestConnectExtendsTimeout(t *testing.T) {
 	clk := newFakeClock(time.Date(2026, 4, 15, 12, 0, 0, 0, time.UTC))
 	m, _ := newTestManager(t, clk)
@@ -663,6 +691,225 @@ func TestConnectResumesPausedSandboxPastOriginalTTL(t *testing.T) {
 	wantExpiry := clk.Now().Add(2 * time.Minute)
 	if !resumed.ExpiresAt.Equal(wantExpiry) {
 		t.Errorf("ExpiresAt = %v, want %v", resumed.ExpiresAt, wantExpiry)
+	}
+}
+
+func TestRehydrateReconstructsFromExistingContainers(t *testing.T) {
+	// Round-trip: Create a sandbox through a first manager, drop that
+	// manager, point a fresh one at the same runtime (simulating
+	// edvabe restarting while containers stay up on Docker), and call
+	// Rehydrate. The sandbox should reappear in the new registry with
+	// its identity labels recovered.
+	clk := newFakeClock(time.Date(2026, 4, 15, 12, 0, 0, 0, time.UTC))
+	rt := noop.New()
+	m1, err := NewManager(Options{Runtime: rt, Agent: &stubAgent{port: 49983}, Clock: clk})
+	if err != nil {
+		t.Fatalf("NewManager #1: %v", err)
+	}
+	ctx := context.Background()
+
+	created, err := m1.Create(ctx, CreateOptions{
+		TemplateID: "my-template",
+		Alias:      "my-alias",
+		OnTimeout:  OnTimeoutPause,
+		Metadata:   map[string]string{"owner": "alice"},
+		EnvVars:    map[string]string{"FOO": "bar"},
+		Timeout:    time.Minute,
+	})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if err := m1.Pause(ctx, created.ID); err != nil {
+		t.Fatalf("Pause: %v", err)
+	}
+
+	// Fresh manager, same runtime — empty in-memory registry.
+	clk.Advance(30 * time.Minute)
+	m2, err := NewManager(Options{Runtime: rt, Agent: &stubAgent{port: 49983}, Clock: clk})
+	if err != nil {
+		t.Fatalf("NewManager #2: %v", err)
+	}
+	if _, err := m2.Get(created.ID); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("fresh manager should not know about %q yet: err=%v", created.ID, err)
+	}
+
+	n, err := m2.Rehydrate(ctx, 10*time.Minute)
+	if err != nil {
+		t.Fatalf("Rehydrate: %v", err)
+	}
+	if n != 1 {
+		t.Errorf("Rehydrate count = %d, want 1", n)
+	}
+
+	got, err := m2.Get(created.ID)
+	if err != nil {
+		t.Fatalf("Get after Rehydrate: %v", err)
+	}
+	if got.TemplateID != "my-template" {
+		t.Errorf("TemplateID = %q, want my-template", got.TemplateID)
+	}
+	if got.Alias != "my-alias" {
+		t.Errorf("Alias = %q, want my-alias", got.Alias)
+	}
+	if got.EnvdToken != created.EnvdToken {
+		t.Errorf("EnvdToken = %q, want %q (same as before restart)", got.EnvdToken, created.EnvdToken)
+	}
+	if got.TrafficToken != created.TrafficToken {
+		t.Errorf("TrafficToken = %q, want %q", got.TrafficToken, created.TrafficToken)
+	}
+	if got.OnTimeout != OnTimeoutPause {
+		t.Errorf("OnTimeout = %q, want pause", got.OnTimeout)
+	}
+	if got.State != StatePaused || got.PauseMode != PauseFrozen {
+		t.Errorf("state = %q / pauseMode = %q, want paused/frozen", got.State, got.PauseMode)
+	}
+	if got.Metadata["owner"] != "alice" {
+		t.Errorf("metadata not recovered: %v", got.Metadata)
+	}
+	// Paused sandbox should be resumable even though its original TTL
+	// has lapsed (from the earlier fix; rehydration gives ExpiresAt in
+	// the past on purpose for paused sandboxes).
+	if _, err := m2.Connect(ctx, created.ID, time.Minute); err != nil {
+		t.Errorf("Connect on rehydrated paused sandbox: %v", err)
+	}
+}
+
+func TestRehydrateResumesStoppedSandbox(t *testing.T) {
+	// Simulates a sandbox that was demoted to docker-stop by the
+	// reaper before edvabe restarted. Rehydration should reconstruct
+	// it as State=paused / PauseMode=stopped, and a subsequent Connect
+	// must take the resume-stopped path: rt.Start + re-resolve agent
+	// endpoint + InitAgent with the recovered envd token.
+	clk := newFakeClock(time.Date(2026, 4, 15, 12, 0, 0, 0, time.UTC))
+	rt := noop.New()
+	ap1 := &stubAgent{port: 49983}
+	m1, err := NewManager(Options{Runtime: rt, Agent: ap1, Clock: clk})
+	if err != nil {
+		t.Fatalf("NewManager #1: %v", err)
+	}
+	ctx := context.Background()
+	created, err := m1.Create(ctx, CreateOptions{Timeout: time.Minute})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	// Reaper-equivalent: flip the runtime to stopped without going
+	// through the manager (which is the state the demote-to-stopped
+	// transition leaves behind on a real docker stop).
+	if err := rt.Stop(ctx, created.ID); err != nil {
+		t.Fatalf("rt.Stop: %v", err)
+	}
+
+	clk.Advance(2 * time.Hour)
+	ap2 := &stubAgent{port: 49983}
+	m2, err := NewManager(Options{Runtime: rt, Agent: ap2, Clock: clk})
+	if err != nil {
+		t.Fatalf("NewManager #2: %v", err)
+	}
+	n, err := m2.Rehydrate(ctx, 10*time.Minute)
+	if err != nil {
+		t.Fatalf("Rehydrate: %v", err)
+	}
+	if n != 1 {
+		t.Errorf("Rehydrate count = %d, want 1", n)
+	}
+
+	got, _ := m2.Get(created.ID)
+	if got.State != StatePaused || got.PauseMode != PauseStopped {
+		t.Errorf("rehydrated state = %q / %q, want paused/stopped", got.State, got.PauseMode)
+	}
+	if got.AgentHost != "" {
+		t.Errorf("AgentHost for stopped = %q, want empty", got.AgentHost)
+	}
+
+	resumed, err := m2.Connect(ctx, created.ID, time.Minute)
+	if err != nil {
+		t.Fatalf("Connect on stopped rehydrated sandbox: %v", err)
+	}
+	if resumed.State != StateRunning {
+		t.Errorf("state after Connect = %q, want running", resumed.State)
+	}
+	if resumed.AgentHost == "" {
+		t.Errorf("AgentHost still empty after Connect (rt.Start should have re-resolved)")
+	}
+	if resumed.EnvdToken != created.EnvdToken {
+		t.Errorf("EnvdToken after rehydrate+resume = %q, want %q", resumed.EnvdToken, created.EnvdToken)
+	}
+	if ap2.inits != 1 {
+		t.Errorf("agent.InitAgent called %d times on resume, want 1", ap2.inits)
+	}
+}
+
+func TestRehydratePreUpgradeContainerHasEmptyTokens(t *testing.T) {
+	// Containers created before the sandbox-level labels shipped will
+	// rehydrate (Manager.Get works, State/Destroy work) but with empty
+	// tokens. This documents the known limitation so a future change
+	// doesn't accidentally start synthesizing fake tokens that would
+	// silently break envd auth.
+	clk := newFakeClock(time.Date(2026, 4, 15, 12, 0, 0, 0, time.UTC))
+	rt := noop.New()
+	ctx := context.Background()
+
+	// Simulate a pre-upgrade container by calling the runtime directly
+	// with only the two load-bearing labels (managed + sandbox-id,
+	// which older edvabe already stamped).
+	if _, err := rt.Create(ctx, runtime.CreateRequest{
+		SandboxID: "isb_preupgrade",
+		Image:     "old",
+		Labels:    map[string]string{}, // no edvabe.sandbox.* labels
+	}); err != nil {
+		t.Fatalf("rt.Create: %v", err)
+	}
+
+	m, err := NewManager(Options{Runtime: rt, Agent: &stubAgent{port: 49983}, Clock: clk})
+	if err != nil {
+		t.Fatalf("NewManager: %v", err)
+	}
+	if _, err := m.Rehydrate(ctx, time.Minute); err != nil {
+		t.Fatalf("Rehydrate: %v", err)
+	}
+
+	got, err := m.Get("isb_preupgrade")
+	if err != nil {
+		t.Fatalf("Get after Rehydrate: %v", err)
+	}
+	if got.EnvdToken != "" {
+		t.Errorf("EnvdToken = %q, want empty for pre-upgrade container", got.EnvdToken)
+	}
+	if got.TrafficToken != "" {
+		t.Errorf("TrafficToken = %q, want empty for pre-upgrade container", got.TrafficToken)
+	}
+	// Destroy still works on pre-upgrade entries — critical for cleanup.
+	if err := m.Destroy(ctx, "isb_preupgrade"); err != nil {
+		t.Errorf("Destroy on pre-upgrade sandbox: %v", err)
+	}
+}
+
+func TestRehydrateSkipsAlreadyKnownSandboxes(t *testing.T) {
+	// If a sandbox is already in the registry (e.g. a second Rehydrate
+	// call) we must not clobber it — the live in-memory entry is more
+	// authoritative than the reconstructed one.
+	clk := newFakeClock(time.Date(2026, 4, 15, 12, 0, 0, 0, time.UTC))
+	m, _ := newTestManagerWithRuntime(t, clk)
+	ctx := context.Background()
+
+	s, err := m.Create(ctx, CreateOptions{Timeout: time.Minute})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	originalExpiry := s.ExpiresAt
+
+	clk.Advance(10 * time.Minute)
+	n, err := m.Rehydrate(ctx, 5*time.Minute)
+	if err != nil {
+		t.Fatalf("Rehydrate: %v", err)
+	}
+	if n != 0 {
+		t.Errorf("Rehydrate should skip known sandboxes, got n=%d", n)
+	}
+	got, _ := m.Get(s.ID)
+	if !got.ExpiresAt.Equal(originalExpiry) {
+		t.Errorf("ExpiresAt was clobbered by Rehydrate: got %v, want %v", got.ExpiresAt, originalExpiry)
 	}
 }
 

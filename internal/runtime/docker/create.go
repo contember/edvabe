@@ -29,12 +29,17 @@ func (r *Runtime) Create(ctx context.Context, req runtime.CreateRequest) (*runti
 		port = defaultAgentPort
 	}
 
-	labels := map[string]string{
-		LabelSandboxID: req.SandboxID,
-		LabelManaged:   "true",
+	labels := map[string]string{}
+	// Caller-supplied labels go in first so the runtime's own keys win
+	// on collision — sandbox-id and managed=true are load-bearing for
+	// ListManaged/Rehydrate and must not be overwritten.
+	for k, v := range req.Labels {
+		labels[k] = v
 	}
+	labels[LabelSandboxID] = req.SandboxID
+	labels[LabelManaged] = "true"
 	for k, v := range req.Metadata {
-		labels[LabelMetaPrefix+k] = v
+		labels[runtime.LabelMetaPrefix+k] = v
 	}
 
 	var mounts []mount.Mount
