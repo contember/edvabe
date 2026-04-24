@@ -390,8 +390,12 @@ func (m *Manager) Destroy(ctx context.Context, id string) error {
 }
 
 // SetTimeout resets the sandbox TTL from the current clock. Returns
-// ErrNotFound if the sandbox is unknown or ErrExpired if it already
-// lapsed (typically meaning EnforceTimeouts hasn't reaped it yet).
+// ErrNotFound if the sandbox is unknown or ErrExpired if a *running*
+// sandbox's TTL already lapsed. Paused sandboxes are exempt — same
+// reasoning as Manager.Connect: they live on the pause-cycle reaper
+// (FreezeDuration → demote, StoppedGCAfter → destroy), not the
+// running-TTL. Extending a paused sandbox's timeout is normal SDK
+// flow (e.g. `sandbox.setTimeout(...)` ahead of `connect()`).
 func (m *Manager) SetTimeout(id string, timeout time.Duration) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -400,7 +404,7 @@ func (m *Manager) SetTimeout(id string, timeout time.Duration) error {
 		return ErrNotFound
 	}
 	now := m.clock.Now()
-	if !s.ExpiresAt.After(now) {
+	if s.State != StatePaused && !s.ExpiresAt.After(now) {
 		return ErrExpired
 	}
 	s.ExpiresAt = now.Add(timeout)

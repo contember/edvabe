@@ -305,6 +305,34 @@ func TestSetTimeoutOnExpired(t *testing.T) {
 	}
 }
 
+func TestSetTimeoutExtendsPausedSandboxPastOriginalTTL(t *testing.T) {
+	// Mirror of the Connect fix: SetTimeout on a paused sandbox whose
+	// running-TTL has lapsed must succeed, because the SDK reconnect
+	// flow can call setTimeout() before connect(), and paused
+	// sandboxes live on the pause-cycle reaper, not the running-TTL.
+	clk := newFakeClock(time.Date(2026, 4, 15, 12, 0, 0, 0, time.UTC))
+	m, _ := newTestManagerWithRuntime(t, clk)
+	ctx := context.Background()
+
+	s, err := m.Create(ctx, CreateOptions{Timeout: 30 * time.Second})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if err := m.Pause(ctx, s.ID); err != nil {
+		t.Fatalf("Pause: %v", err)
+	}
+	clk.Advance(5 * time.Minute)
+
+	if err := m.SetTimeout(s.ID, 10*time.Minute); err != nil {
+		t.Errorf("SetTimeout on paused+past-TTL = %v, want nil", err)
+	}
+	got, _ := m.Get(s.ID)
+	wantExpiry := clk.Now().Add(10 * time.Minute)
+	if !got.ExpiresAt.Equal(wantExpiry) {
+		t.Errorf("ExpiresAt after SetTimeout = %v, want %v", got.ExpiresAt, wantExpiry)
+	}
+}
+
 func TestConnectExtendsTimeout(t *testing.T) {
 	clk := newFakeClock(time.Date(2026, 4, 15, 12, 0, 0, 0, time.UTC))
 	m, _ := newTestManager(t, clk)

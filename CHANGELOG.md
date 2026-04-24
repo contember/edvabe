@@ -3,6 +3,15 @@
 All notable changes to edvabe land here. Format roughly follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## Unreleased
+
+### Fixed
+
+- `SetTimeout` no longer returns `ErrExpired` (410) for a paused
+  sandbox whose original running-TTL has lapsed — same state-guard
+  the `Connect` path got in v0.1.1. Matters when SDK code calls
+  `sandbox.setTimeout()` on a paused sandbox ahead of `connect()`.
+
 ## v0.1.1 — 2026-04-24
 
 ### Fixed
