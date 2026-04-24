@@ -3,7 +3,16 @@
 All notable changes to edvabe land here. Format roughly follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## Unreleased
+## v0.1.1 — 2026-04-24
+
+### Fixed
+
+- `Connect` no longer returns `ErrExpired` (410) when resuming a
+  paused sandbox whose original running-TTL has lapsed. Paused
+  sandboxes have their own lifecycle (`FreezeDuration` → demote,
+  `StoppedGCAfter` → destroy); the running-TTL check now only applies
+  to running sandboxes. Previously, any sandbox paused past its TTL
+  was permanently un-resumable.
 
 ### Changed
 
