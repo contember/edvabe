@@ -8,6 +8,7 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"strconv"
+	"time"
 
 	"github.com/contember/edvabe/internal/sandbox"
 )
@@ -18,6 +19,16 @@ import (
 // contract required for future proxy backends.
 type SandboxLookup interface {
 	Get(id string) (*sandbox.Sandbox, error)
+}
+
+// AutoResumer resumes a paused sandbox on demand. Satisfied by
+// sandbox.Manager.Connect — which unpauses the container, re-inits
+// the agent for stopped sandboxes, and resets the idle clock. When
+// non-nil, the proxy calls it before forwarding any request to a
+// paused sandbox so data-plane traffic self-heals without requiring
+// an explicit SDK /connect call.
+type AutoResumer interface {
+	Connect(ctx context.Context, id string, timeout time.Duration) (*sandbox.Sandbox, error)
 }
 
 // AgentResolver turns a sandbox ID into the host:port of its in-sandbox
@@ -39,7 +50,7 @@ type AgentResolver interface {
 // own transport layer — we don't need to touch Connection/Upgrade/etc.
 // explicitly. The request body is never read by edvabe; it flows
 // through as a stream.
-func NewProxy(lookup SandboxLookup, resolver AgentResolver) http.Handler {
+func NewProxy(lookup SandboxLookup, resolver AgentResolver, resumer AutoResumer) http.Handler {
 	rp := &httputil.ReverseProxy{
 		// Negative flush interval = flush after every write. Required
 		// for Connect-RPC server streams and NDJSON responses.
@@ -61,13 +72,21 @@ func NewProxy(lookup SandboxLookup, resolver AgentResolver) http.Handler {
 			return
 		}
 
-		if _, err := lookup.Get(id); err != nil {
+		sb, err := lookup.Get(id)
+		if err != nil {
 			if errors.Is(err, sandbox.ErrNotFound) {
 				WriteError(w, http.StatusNotFound, fmt.Sprintf("sandbox %q not found", id))
 				return
 			}
 			WriteError(w, http.StatusInternalServerError, err.Error())
 			return
+		}
+
+		if sb.State == sandbox.StatePaused && resumer != nil {
+			if _, err := resumer.Connect(r.Context(), id, sb.Timeout); err != nil {
+				WriteError(w, http.StatusServiceUnavailable, fmt.Sprintf("auto-resume %q: %v", id, err))
+				return
+			}
 		}
 
 		host, port, err := resolver.AgentEndpoint(id)

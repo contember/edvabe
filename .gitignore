@@ -33,3 +33,6 @@ test/e2e/python/.pytest_cache/
 # TypeScript E2E test artifacts
 test/e2e/ts/node_modules/
 test/e2e/ts/package-lock.json
+
+# Vendored dependencies
+vendor/

@@ -86,6 +86,7 @@ type overviewSandbox struct {
 	PausedAt       string            `json:"pausedAt,omitempty"`
 	CreatedAt      string            `json:"createdAt"`
 	ExpiresAt      string            `json:"expiresAt"`
+	LastActiveAt   string            `json:"lastActiveAt,omitempty"`
 	Metadata       map[string]string `json:"metadata,omitempty"`
 	CPUUsedPercent float64           `json:"cpuUsedPercent,omitempty"`
 	MemoryUsedMiB  int64             `json:"memoryUsedMiB,omitempty"`
@@ -136,14 +137,15 @@ func serveOverview(opts HandlerOptions, w http.ResponseWriter, r *http.Request) 
 
 	for _, s := range list {
 		entry := overviewSandbox{
-			ID:         s.ID,
-			TemplateID: s.TemplateID,
-			Alias:      s.Alias,
-			State:      s.State,
-			PauseMode:  s.PauseMode,
-			CreatedAt:  s.CreatedAt.UTC().Format("2006-01-02T15:04:05Z"),
-			ExpiresAt:  s.ExpiresAt.UTC().Format("2006-01-02T15:04:05Z"),
-			Metadata:   s.Metadata,
+			ID:           s.ID,
+			TemplateID:   s.TemplateID,
+			Alias:        s.Alias,
+			State:        s.State,
+			PauseMode:    s.PauseMode,
+			CreatedAt:    s.CreatedAt.UTC().Format("2006-01-02T15:04:05Z"),
+			ExpiresAt:    s.ExpiresAt().UTC().Format("2006-01-02T15:04:05Z"),
+			LastActiveAt: s.LastActiveAt.UTC().Format("2006-01-02T15:04:05Z"),
+			Metadata:     s.Metadata,
 		}
 		if !s.PausedAt.IsZero() {
 			entry.PausedAt = s.PausedAt.UTC().Format("2006-01-02T15:04:05Z")

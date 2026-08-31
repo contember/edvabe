@@ -1,7 +1,9 @@
 package sandbox
 
 import (
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/contember/edvabe/internal/runtime"
 )
@@ -17,6 +19,7 @@ const (
 	LabelTokenEnvd     = "edvabe.sandbox.token.envd"
 	LabelTokenTraffic  = "edvabe.sandbox.token.traffic"
 	LabelOnTimeout     = "edvabe.sandbox.ontimeout"
+	LabelTimeout       = "edvabe.sandbox.timeout"
 
 	// labelImageTemplateID is the template-id label the template build
 	// system stamps on the image itself. Used as a fallback when a
@@ -40,12 +43,15 @@ func buildSandboxLabels(s *Sandbox) map[string]string {
 	if s.OnTimeout != "" {
 		labels[LabelOnTimeout] = string(s.OnTimeout)
 	}
+	if s.Timeout > 0 {
+		labels[LabelTimeout] = strconv.FormatInt(int64(s.Timeout.Seconds()), 10)
+	}
 	return labels
 }
 
 // sandboxFromManaged reconstructs a Sandbox from what the runtime
 // reported. Fields that can't be recovered from labels or inspect
-// (ExpiresAt, PausedAt) are left to the caller to default.
+// (LastActiveAt, PausedAt) are left to the caller to default.
 func sandboxFromManaged(mc runtime.ManagedContainer) *Sandbox {
 	state := StateRunning
 	var pauseMode PauseMode
@@ -63,7 +69,7 @@ func sandboxFromManaged(mc runtime.ManagedContainer) *Sandbox {
 		templateID = mc.Labels[labelImageTemplateID]
 	}
 
-	return &Sandbox{
+	s := &Sandbox{
 		ID:           mc.SandboxID,
 		TemplateID:   templateID,
 		Alias:        mc.Labels[LabelTemplateAlias],
@@ -81,6 +87,12 @@ func sandboxFromManaged(mc runtime.ManagedContainer) *Sandbox {
 		CPUCount:     mc.CPUCount,
 		MemoryMB:     mc.MemoryMB,
 	}
+	if raw := mc.Labels[LabelTimeout]; raw != "" {
+		if secs, err := strconv.ParseInt(raw, 10, 64); err == nil && secs > 0 {
+			s.Timeout = time.Duration(secs) * time.Second
+		}
+	}
+	return s
 }
 
 // extractMetadataFromLabels pulls user metadata (edvabe.meta.* keys)

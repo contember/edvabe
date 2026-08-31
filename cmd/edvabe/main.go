@@ -164,13 +164,15 @@ func serveCmd(args []string) {
 		domain = fmt.Sprintf("localhost:%d", *port)
 	}
 	mgr, err := sandbox.NewManager(sandbox.Options{
-		Runtime:        rt,
-		Agent:          ap,
-		Domain:         domain,
-		Resolver:       template.NewSandboxResolver(templateStore),
-		FreezeDuration: *freezeDuration,
-		MaxFrozen:      *maxFrozen,
-		StoppedGCAfter: *stoppedGCAfter,
+		Runtime:           rt,
+		Agent:             ap,
+		Domain:            domain,
+		Resolver:          template.NewSandboxResolver(templateStore),
+		FreezeDuration:    *freezeDuration,
+		MaxFrozen:         *maxFrozen,
+		StoppedGCAfter:    *stoppedGCAfter,
+		KeepaliveEnabled:  os.Getenv("EDVABE_KEEPALIVE_ENABLED") != "0",
+		KeepaliveCoalesce: envDurationOr("EDVABE_KEEPALIVE_COALESCE", time.Second),
 	})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "serve: init manager: %v\n", err)
@@ -224,13 +226,13 @@ func serveCmd(args []string) {
 		FileSigner: fileSigner,
 		PublicBase: os.Getenv("EDVABE_PUBLIC_BASE"),
 	})
-	proxyHandler := api.NewProxy(mgr, rt)
+	proxyHandler := api.NewProxy(mgr, rt, mgr)
 	dashboardHandler := dashboard.NewHandler(dashboard.HandlerOptions{
 		Manager:   mgr,
 		Runtime:   rt,
 		Templates: templateStore,
 	})
-	handler := api.NewRouter(controlHandler, proxyHandler, dashboardHandler)
+	handler := api.NewRouter(controlHandler, proxyHandler, dashboardHandler, mgr.MarkActivity)
 
 	if *dnsListen != "" {
 		answerStr := *dnsAnswer

@@ -2,6 +2,7 @@ package api
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -77,7 +78,7 @@ func TestProxyForwardsRequest(t *testing.T) {
 
 	mgr := &fakeLookup{byID: map[string]*sandbox.Sandbox{"isb_a": {ID: "isb_a"}}}
 	rt := &fakeResolver{host: host, port: port}
-	front := httptest.NewServer(NewProxy(mgr, rt))
+	front := httptest.NewServer(NewProxy(mgr, rt, nil))
 	defer front.Close()
 
 	req, _ := http.NewRequest("POST", front.URL+"/files?path=/etc/hostname", nil)
@@ -110,7 +111,7 @@ func TestProxyForwardsRequest(t *testing.T) {
 func TestProxyReturns404OnUnknownSandbox(t *testing.T) {
 	mgr := &fakeLookup{byID: map[string]*sandbox.Sandbox{}}
 	rt := &fakeResolver{host: "127.0.0.1", port: 1}
-	front := httptest.NewServer(NewProxy(mgr, rt))
+	front := httptest.NewServer(NewProxy(mgr, rt, nil))
 	defer front.Close()
 
 	req, _ := http.NewRequest("GET", front.URL+"/health", nil)
@@ -139,7 +140,7 @@ func TestProxyReturns404OnUnknownSandbox(t *testing.T) {
 func TestProxyReturns400WhenHeaderMissing(t *testing.T) {
 	mgr := &fakeLookup{byID: map[string]*sandbox.Sandbox{}}
 	rt := &fakeResolver{host: "127.0.0.1", port: 1}
-	front := httptest.NewServer(NewProxy(mgr, rt))
+	front := httptest.NewServer(NewProxy(mgr, rt, nil))
 	defer front.Close()
 
 	resp, err := http.Get(front.URL + "/health")
@@ -158,7 +159,7 @@ func TestProxyReturns502WhenUpstreamDown(t *testing.T) {
 	// Point the resolver at a port nothing listens on (port 1 is the
 	// TCPMUX well-known port; effectively always closed on dev laptops).
 	rt := &fakeResolver{host: "127.0.0.1", port: 1}
-	front := httptest.NewServer(NewProxy(mgr, rt))
+	front := httptest.NewServer(NewProxy(mgr, rt, nil))
 	defer front.Close()
 
 	req, _ := http.NewRequest("GET", front.URL+"/health", nil)
@@ -188,7 +189,7 @@ func TestProxyPortOverride(t *testing.T) {
 	// The resolver returns a different port (1) so the only way the
 	// request can reach our backend is via the header override.
 	rt := &fakeResolver{host: host, port: 1}
-	front := httptest.NewServer(NewProxy(mgr, rt))
+	front := httptest.NewServer(NewProxy(mgr, rt, nil))
 	defer front.Close()
 
 	req, _ := http.NewRequest("GET", front.URL+"/health", nil)
@@ -220,7 +221,7 @@ func TestProxyNoPortHeaderUsesDefault(t *testing.T) {
 
 	mgr := &fakeLookup{byID: map[string]*sandbox.Sandbox{"isb_d": {ID: "isb_d"}}}
 	rt := &fakeResolver{host: host, port: port}
-	front := httptest.NewServer(NewProxy(mgr, rt))
+	front := httptest.NewServer(NewProxy(mgr, rt, nil))
 	defer front.Close()
 
 	req, _ := http.NewRequest("GET", front.URL+"/health", nil)
@@ -262,7 +263,7 @@ func TestProxyStreamsResponse(t *testing.T) {
 
 	mgr := &fakeLookup{byID: map[string]*sandbox.Sandbox{"isb_s": {ID: "isb_s"}}}
 	rt := &fakeResolver{host: host, port: port}
-	front := httptest.NewServer(NewProxy(mgr, rt))
+	front := httptest.NewServer(NewProxy(mgr, rt, nil))
 	defer front.Close()
 
 	req, _ := http.NewRequest("GET", front.URL+"/stream", nil)
@@ -304,5 +305,85 @@ func TestProxyStreamsResponse(t *testing.T) {
 	}
 	if gap := t2 - t1; gap < chunkDelay-50*time.Millisecond {
 		t.Errorf("chunks too close together: t1=%v t2=%v gap=%v want>=%v", t1, t2, gap, chunkDelay-50*time.Millisecond)
+	}
+}
+
+// fakeResumer is an AutoResumer stub that records the call and
+// optionally flips the sandbox to running (simulating a successful
+// resume).
+type fakeResumer struct {
+	called   bool
+	calledID string
+}
+
+func (f *fakeResumer) Connect(_ context.Context, id string, _ time.Duration) (*sandbox.Sandbox, error) {
+	f.called = true
+	f.calledID = id
+	return nil, nil
+}
+
+func TestAutoResumePausedSandbox(t *testing.T) {
+	var gotPath string
+	host, port, closeBackend := newBackend(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		w.WriteHeader(200)
+		fmt.Fprintln(w, "ok")
+	}))
+	defer closeBackend()
+
+	sb := &sandbox.Sandbox{ID: "isb_paused", State: sandbox.StatePaused, Timeout: 5 * time.Minute}
+	mgr := &fakeLookup{byID: map[string]*sandbox.Sandbox{"isb_paused": sb}}
+	rt := &fakeResolver{host: host, port: port}
+	resumer := &fakeResumer{}
+	front := httptest.NewServer(NewProxy(mgr, rt, resumer))
+	defer front.Close()
+
+	req, _ := http.NewRequest("GET", front.URL+"/files", nil)
+	req.Header.Set(HeaderSandboxID, "isb_paused")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("proxy request: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if !resumer.called {
+		t.Error("AutoResumer.Connect was not called for paused sandbox")
+	}
+	if resumer.calledID != "isb_paused" {
+		t.Errorf("Connect called with id=%q, want isb_paused", resumer.calledID)
+	}
+	if resp.StatusCode != 200 {
+		t.Errorf("status = %d, want 200 (resume+proxy should succeed)", resp.StatusCode)
+	}
+	if gotPath != "/files" {
+		t.Errorf("backend path = %q, want /files", gotPath)
+	}
+}
+
+func TestProxyNoResumeForRunningSandbox(t *testing.T) {
+	host, port, closeBackend := newBackend(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(200)
+	}))
+	defer closeBackend()
+
+	sb := &sandbox.Sandbox{ID: "isb_running", State: sandbox.StateRunning, Timeout: 5 * time.Minute}
+	mgr := &fakeLookup{byID: map[string]*sandbox.Sandbox{"isb_running": sb}}
+	rt := &fakeResolver{host: host, port: port}
+	resumer := &fakeResumer{}
+	front := httptest.NewServer(NewProxy(mgr, rt, resumer))
+	defer front.Close()
+
+	req, _ := http.NewRequest("GET", front.URL+"/files", nil)
+	req.Header.Set(HeaderSandboxID, "isb_running")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("proxy request: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resumer.called {
+		t.Error("AutoResumer.Connect should not be called for running sandbox")
 	}
 }

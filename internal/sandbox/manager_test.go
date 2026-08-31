@@ -154,8 +154,8 @@ func TestCreateGetList(t *testing.T) {
 	if !s.CreatedAt.Equal(clk.Now()) {
 		t.Errorf("CreatedAt = %v, want %v", s.CreatedAt, clk.Now())
 	}
-	if !s.ExpiresAt.Equal(clk.Now().Add(60 * time.Second)) {
-		t.Errorf("ExpiresAt = %v, want +60s", s.ExpiresAt)
+	if !s.ExpiresAt().Equal(clk.Now().Add(60 * time.Second)) {
+		t.Errorf("ExpiresAt = %v, want +60s", s.ExpiresAt())
 	}
 	if ap.pings != 1 {
 		t.Errorf("agent.Ping called %d times, want 1", ap.pings)
@@ -328,8 +328,8 @@ func TestSetTimeoutExtendsPausedSandboxPastOriginalTTL(t *testing.T) {
 	}
 	got, _ := m.Get(s.ID)
 	wantExpiry := clk.Now().Add(10 * time.Minute)
-	if !got.ExpiresAt.Equal(wantExpiry) {
-		t.Errorf("ExpiresAt after SetTimeout = %v, want %v", got.ExpiresAt, wantExpiry)
+	if !got.ExpiresAt().Equal(wantExpiry) {
+		t.Errorf("ExpiresAt after SetTimeout = %v, want %v", got.ExpiresAt(), wantExpiry)
 	}
 }
 
@@ -351,8 +351,8 @@ func TestConnectExtendsTimeout(t *testing.T) {
 	if got.ID != s.ID {
 		t.Errorf("Connect returned %q, want %q", got.ID, s.ID)
 	}
-	if !got.ExpiresAt.Equal(clk.Now().Add(60 * time.Second)) {
-		t.Errorf("ExpiresAt = %v, want %v", got.ExpiresAt, clk.Now().Add(60*time.Second))
+	if !got.ExpiresAt().Equal(clk.Now().Add(60 * time.Second)) {
+		t.Errorf("ExpiresAt = %v, want %v", got.ExpiresAt(), clk.Now().Add(60*time.Second))
 	}
 }
 
@@ -386,8 +386,8 @@ func TestCreateAppliesDefaultTimeout(t *testing.T) {
 		t.Fatalf("Create: %v", err)
 	}
 	want := clk.Now().Add(DefaultTimeout)
-	if !s.ExpiresAt.Equal(want) {
-		t.Errorf("ExpiresAt = %v, want %v (DefaultTimeout)", s.ExpiresAt, want)
+	if !s.ExpiresAt().Equal(want) {
+		t.Errorf("ExpiresAt = %v, want %v (DefaultTimeout)", s.ExpiresAt(), want)
 	}
 }
 
@@ -689,8 +689,8 @@ func TestConnectResumesPausedSandboxPastOriginalTTL(t *testing.T) {
 		t.Errorf("state after Connect = %q, want running", resumed.State)
 	}
 	wantExpiry := clk.Now().Add(2 * time.Minute)
-	if !resumed.ExpiresAt.Equal(wantExpiry) {
-		t.Errorf("ExpiresAt = %v, want %v", resumed.ExpiresAt, wantExpiry)
+	if !resumed.ExpiresAt().Equal(wantExpiry) {
+		t.Errorf("ExpiresAt = %v, want %v", resumed.ExpiresAt(), wantExpiry)
 	}
 }
 
@@ -897,7 +897,7 @@ func TestRehydrateSkipsAlreadyKnownSandboxes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
-	originalExpiry := s.ExpiresAt
+	originalExpiry := s.ExpiresAt()
 
 	clk.Advance(10 * time.Minute)
 	n, err := m.Rehydrate(ctx, 5*time.Minute)
@@ -908,8 +908,8 @@ func TestRehydrateSkipsAlreadyKnownSandboxes(t *testing.T) {
 		t.Errorf("Rehydrate should skip known sandboxes, got n=%d", n)
 	}
 	got, _ := m.Get(s.ID)
-	if !got.ExpiresAt.Equal(originalExpiry) {
-		t.Errorf("ExpiresAt was clobbered by Rehydrate: got %v, want %v", got.ExpiresAt, originalExpiry)
+	if !got.ExpiresAt().Equal(originalExpiry) {
+		t.Errorf("ExpiresAt was clobbered by Rehydrate: got %v, want %v", got.ExpiresAt(), originalExpiry)
 	}
 }
 
@@ -1486,7 +1486,7 @@ func TestResumePreservesTTL(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
-	originalExpiry := s.ExpiresAt
+	originalExpiry := s.ExpiresAt()
 	if err := m.Pause(ctx, s.ID); err != nil {
 		t.Fatalf("Pause: %v", err)
 	}
@@ -1498,8 +1498,8 @@ func TestResumePreservesTTL(t *testing.T) {
 	if got.State != StateRunning {
 		t.Errorf("State = %q, want running", got.State)
 	}
-	if !got.ExpiresAt.Equal(originalExpiry) {
-		t.Errorf("ExpiresAt changed: %v vs %v (Resume should preserve TTL)", got.ExpiresAt, originalExpiry)
+	if !got.ExpiresAt().Equal(originalExpiry) {
+		t.Errorf("ExpiresAt changed: %v vs %v (Resume should preserve TTL)", got.ExpiresAt(), originalExpiry)
 	}
 	if rt.IsPaused(s.ID) {
 		t.Error("runtime still paused after Resume")

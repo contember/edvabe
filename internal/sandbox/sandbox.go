@@ -41,7 +41,7 @@ const (
 )
 
 // OnTimeoutMode controls what EnforceTimeouts does to a sandbox once
-// its ExpiresAt has lapsed. The default (OnTimeoutKill) destroys the
+// its idle TTL has lapsed. The default (OnTimeoutKill) destroys the
 // container; OnTimeoutPause freezes it via runtime.Pause and leaves it
 // in the registry for a later /connect to resume. Values are the same
 // strings the E2B SDK sends in NewSandbox.lifecycle.onTimeout.
@@ -53,7 +53,7 @@ const (
 )
 
 // Sandbox is edvabe's view of one active sandbox. Fields mutated over
-// the sandbox's lifetime (State, ExpiresAt) are guarded by Manager.mu.
+// the sandbox's lifetime (State, LastActiveAt) are guarded by Manager.mu.
 // Callers that receive a *Sandbox from the Manager MUST treat it as
 // read-only — use Manager methods to mutate.
 type Sandbox struct {
@@ -77,10 +77,26 @@ type Sandbox struct {
 	Metadata     map[string]string
 	EnvVars      map[string]string
 	CreatedAt    time.Time
-	ExpiresAt    time.Time
+	// Timeout is the idle-TTL set at creation time (or updated via
+	// SetTimeout). The sandbox is reaped when it has been idle
+	// (no data-plane traffic) for this duration.
+	Timeout time.Duration
+	// LastActiveAt is the timestamp of the most recent data-plane
+	// activity (any request routed through the proxy). Stamped by
+	// Manager.MarkActivity with sub-second coalescing. The idle
+	// deadline is LastActiveAt + Timeout.
+	LastActiveAt time.Time
 	// CPUCount / MemoryMB are the resource caps applied to the
 	// container. Zero means unlimited (Docker default). Sourced from
 	// the template resolution and per-sandbox overrides.
 	CPUCount int
 	MemoryMB int
+}
+
+// ExpiresAt is a computed property: LastActiveAt + Timeout. It is the
+// projected idle-deadline used by API responses and EnforceTimeouts.
+// Updating LastActiveAt or Timeout automatically shifts this value —
+// callers never write ExpiresAt directly.
+func (s *Sandbox) ExpiresAt() time.Time {
+	return s.LastActiveAt.Add(s.Timeout)
 }

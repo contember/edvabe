@@ -18,7 +18,7 @@ var (
 	// Manager has no record of.
 	ErrNotFound = errors.New("sandbox: not found")
 	// ErrExpired is returned when a sandbox is still in the map but its
-	// ExpiresAt has lapsed — the next EnforceTimeouts pass will reap it.
+	// idle TTL has lapsed — the next EnforceTimeouts pass will reap it.
 	ErrExpired = errors.New("sandbox: expired")
 )
 
@@ -111,6 +111,9 @@ type Manager struct {
 	maxFrozen      int
 	stoppedGCAfter time.Duration
 
+	keepaliveEnabled  bool
+	keepaliveCoalesce time.Duration
+
 	mu        sync.RWMutex
 	sandboxes map[string]*Sandbox
 }
@@ -154,6 +157,14 @@ type Options struct {
 	// before the reaper destroys it. Zero defaults to
 	// DefaultStoppedGCAfter. Negative disables GC.
 	StoppedGCAfter time.Duration
+	// KeepaliveEnabled controls whether data-plane traffic resets the
+	// idle timer. Defaults to true via main.go; set false to disable.
+	KeepaliveEnabled bool
+	// KeepaliveCoalesce is the minimum interval between two
+	// MarkActivity writes for the same sandbox. Prevents lock
+	// contention under high-frequency data-plane traffic. Defaults
+	// to 1s.
+	KeepaliveCoalesce time.Duration
 }
 
 // NewManager constructs a Manager. Runtime and Agent are required.
@@ -182,17 +193,23 @@ func NewManager(opts Options) (*Manager, error) {
 	if opts.StoppedGCAfter == 0 {
 		opts.StoppedGCAfter = DefaultStoppedGCAfter
 	}
+	if opts.KeepaliveCoalesce == 0 {
+		opts.KeepaliveCoalesce = time.Second
+	}
+	keepaliveEnabled := opts.KeepaliveEnabled
 	return &Manager{
-		rt:             opts.Runtime,
-		ap:             opts.Agent,
-		clock:          opts.Clock,
-		baseImage:      opts.BaseImage,
-		domain:         opts.Domain,
-		resolver:       opts.Resolver,
-		freezeDuration: opts.FreezeDuration,
-		maxFrozen:      opts.MaxFrozen,
-		stoppedGCAfter: opts.StoppedGCAfter,
-		sandboxes:      make(map[string]*Sandbox),
+		rt:                opts.Runtime,
+		ap:                opts.Agent,
+		clock:             opts.Clock,
+		baseImage:         opts.BaseImage,
+		domain:            opts.Domain,
+		resolver:          opts.Resolver,
+		freezeDuration:    opts.FreezeDuration,
+		maxFrozen:         opts.MaxFrozen,
+		stoppedGCAfter:    opts.StoppedGCAfter,
+		keepaliveEnabled:  keepaliveEnabled,
+		keepaliveCoalesce: opts.KeepaliveCoalesce,
+		sandboxes:         make(map[string]*Sandbox),
 	}, nil
 }
 
@@ -202,12 +219,12 @@ func (m *Manager) Domain() string { return m.domain }
 // Rehydrate repopulates the sandbox registry from containers already on
 // the runtime. Called once on startup so paused / running sandboxes
 // survive edvabe restarts. Sandbox-level metadata (template id, tokens,
-// on-timeout) is recovered from Docker labels stamped at Create time;
-// Mutable fields that aren't persisted (ExpiresAt, PausedAt) get
-// defaults: ExpiresAt = now + defaultTimeout for running sandboxes
-// (SDK typically re-extends via SetTimeout anyway), PausedAt = now for
-// paused sandboxes (the reaper will then hold them for FreezeDuration
-// before demoting, which is conservative but safe).
+// on-timeout, timeout) is recovered from Docker labels stamped at Create
+// time; Mutable fields that aren't persisted (LastActiveAt, PausedAt) get
+// defaults: LastActiveAt = now for running sandboxes (SDK typically
+// re-extends via SetTimeout anyway), PausedAt = now for paused sandboxes
+// (the reaper will then hold them for FreezeDuration before demoting,
+// which is conservative but safe).
 //
 // Per-container failures are logged and skipped — one orphan must not
 // prevent edvabe from starting. Containers labeled edvabe.managed=true
@@ -234,15 +251,14 @@ func (m *Manager) Rehydrate(ctx context.Context, defaultTimeout time.Duration) (
 			continue
 		}
 		s := sandboxFromManaged(mc)
+		if s.Timeout <= 0 {
+			s.Timeout = defaultTimeout
+		}
 		if s.State == StatePaused {
 			s.PausedAt = now
-			// Give paused sandboxes a nominal ExpiresAt in the past so
-			// the running-TTL reaper ignores them (only the pause-cycle
-			// reaper applies). Connect now skips ExpiresAt for paused
-			// sandboxes (see manager.Connect).
-			s.ExpiresAt = mc.CreatedAt
+			s.LastActiveAt = mc.CreatedAt
 		} else {
-			s.ExpiresAt = now.Add(defaultTimeout)
+			s.LastActiveAt = now
 		}
 		if s.OnTimeout == "" {
 			s.OnTimeout = OnTimeoutKill
@@ -315,6 +331,7 @@ func (m *Manager) Create(ctx context.Context, opts CreateOptions) (*Sandbox, err
 		EnvdToken:    envdToken,
 		TrafficToken: trafficToken,
 		OnTimeout:    opts.OnTimeout,
+		Timeout:      opts.Timeout,
 	})
 
 	handle, err := m.rt.Create(ctx, runtime.CreateRequest{
@@ -379,7 +396,8 @@ func (m *Manager) Create(ctx context.Context, opts CreateOptions) (*Sandbox, err
 		Metadata:     cloneMap(opts.Metadata),
 		EnvVars:      cloneMap(opts.EnvVars),
 		CreatedAt:    now,
-		ExpiresAt:    now.Add(opts.Timeout),
+		Timeout:      opts.Timeout,
+		LastActiveAt: now,
 		CPUCount:     cpuCount,
 		MemoryMB:     memoryMB,
 	}
@@ -452,13 +470,13 @@ func (m *Manager) Destroy(ctx context.Context, id string) error {
 	return nil
 }
 
-// SetTimeout resets the sandbox TTL from the current clock. Returns
-// ErrNotFound if the sandbox is unknown or ErrExpired if a *running*
-// sandbox's TTL already lapsed. Paused sandboxes are exempt — same
-// reasoning as Manager.Connect: they live on the pause-cycle reaper
-// (FreezeDuration → demote, StoppedGCAfter → destroy), not the
-// running-TTL. Extending a paused sandbox's timeout is normal SDK
-// flow (e.g. `sandbox.setTimeout(...)` ahead of `connect()`).
+// SetTimeout resets the sandbox's idle TTL. Returns ErrNotFound if the
+// sandbox is unknown or ErrExpired if a *running* sandbox's idle TTL has
+// already lapsed. Paused sandboxes are exempt — same reasoning as
+// Manager.Connect: they live on the pause-cycle reaper (FreezeDuration →
+// demote, StoppedGCAfter → destroy), not the running-TTL. Extending a
+// paused sandbox's timeout is normal SDK flow (e.g.
+// `sandbox.setTimeout(...)` ahead of `connect()`).
 func (m *Manager) SetTimeout(id string, timeout time.Duration) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -467,10 +485,17 @@ func (m *Manager) SetTimeout(id string, timeout time.Duration) error {
 		return ErrNotFound
 	}
 	now := m.clock.Now()
-	if s.State != StatePaused && !s.ExpiresAt.After(now) {
-		return ErrExpired
+	if s.State != StatePaused {
+		ttl := s.Timeout
+		if ttl <= 0 {
+			ttl = DefaultTimeout
+		}
+		if now.Sub(s.LastActiveAt) >= ttl {
+			return ErrExpired
+		}
 	}
-	s.ExpiresAt = now.Add(timeout)
+	s.Timeout = timeout
+	s.LastActiveAt = now
 	return nil
 }
 
@@ -487,17 +512,24 @@ func (m *Manager) Connect(ctx context.Context, id string, timeout time.Duration)
 		return nil, ErrNotFound
 	}
 	now := m.clock.Now()
-	// ExpiresAt tracks the running-sandbox TTL. Paused sandboxes have
-	// their own lifecycle (FreezeDuration → demote, StoppedGCAfter →
-	// destroy), so the expiry check shouldn't block resuming them —
-	// otherwise any pause that outlives the original TTL is un-resumable.
-	if s.State != StatePaused && !s.ExpiresAt.After(now) {
-		m.mu.Unlock()
-		return nil, ErrExpired
+	// Paused sandboxes have their own lifecycle (FreezeDuration →
+	// demote, StoppedGCAfter → destroy), so the idle check shouldn't
+	// block resuming them — otherwise any pause that outlives the
+	// original TTL is un-resumable.
+	if s.State != StatePaused {
+		ttl := s.Timeout
+		if ttl <= 0 {
+			ttl = DefaultTimeout
+		}
+		if now.Sub(s.LastActiveAt) >= ttl {
+			m.mu.Unlock()
+			return nil, ErrExpired
+		}
 	}
 	priorState := s.State
 	priorMode := s.PauseMode
-	s.ExpiresAt = now.Add(timeout)
+	s.Timeout = timeout
+	s.LastActiveAt = now
 	m.mu.Unlock()
 
 	if priorState != StatePaused {
@@ -690,8 +722,9 @@ func (m *Manager) Snapshot(ctx context.Context, id, name string) (*SnapshotInfo,
 // EnforceTimeouts walks the registry and applies the three scheduled
 // transitions:
 //
-//  1. Running sandboxes whose ExpiresAt has lapsed: OnTimeoutKill
-//     destroys them, OnTimeoutPause freezes them via runtime.Pause.
+//  1. Running sandboxes whose idle TTL has lapsed (now - LastActiveAt >=
+//     Timeout): OnTimeoutKill destroys them, OnTimeoutPause freezes
+//     them via runtime.Pause.
 //  2. Frozen sandboxes paused longer than FreezeDuration, or any excess
 //     beyond MaxFrozen (oldest PausedAt first): demoted via
 //     runtime.Stop to free host RAM.
@@ -732,7 +765,11 @@ func (m *Manager) EnforceTimeouts(ctx context.Context) []string {
 			}
 			continue
 		}
-		if !s.ExpiresAt.After(now) {
+		ttl := s.Timeout
+		if ttl <= 0 {
+			ttl = DefaultTimeout
+		}
+		if now.Sub(s.LastActiveAt) >= ttl {
 			if s.OnTimeout == OnTimeoutPause {
 				toPause = append(toPause, expiredEntry{id: id, sbx: s})
 			} else {
@@ -814,6 +851,29 @@ func (m *Manager) Run(ctx context.Context, interval time.Duration) {
 			m.EnforceTimeouts(ctx)
 		}
 	}
+}
+
+// MarkActivity stamps the sandbox's LastActiveAt to now, resetting the
+// idle-TTL countdown. Called by the dispatch layer on every data-plane
+// request (any request carrying E2b-Sandbox-Id). Coalesced to at most
+// one write per keepaliveCoalesce per sandbox to avoid lock contention
+// under high-frequency traffic. No-op for paused sandboxes — resume
+// (via Connect) resets LastActiveAt separately.
+func (m *Manager) MarkActivity(id string) {
+	if !m.keepaliveEnabled {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	s, ok := m.sandboxes[id]
+	if !ok || s.State != StateRunning {
+		return
+	}
+	now := m.clock.Now()
+	if now.Sub(s.LastActiveAt) < m.keepaliveCoalesce {
+		return
+	}
+	s.LastActiveAt = now
 }
 
 func cloneMap(m map[string]string) map[string]string {

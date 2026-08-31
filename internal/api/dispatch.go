@@ -26,7 +26,11 @@ const (
 // the headers are populated so the proxy handler doesn't have to
 // re-parse the host. Requests with neither go to the control plane
 // unchanged.
-func NewRouter(control, proxy, dashboard http.Handler) http.Handler {
+//
+// onActivity, if non-nil, is called for every data-plane request
+// (before proxying) so the sandbox manager can stamp LastActiveAt
+// and reset the idle-TTL countdown.
+func NewRouter(control, proxy, dashboard http.Handler, onActivity func(string)) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if dashboard != nil && strings.HasPrefix(r.URL.Path, "/dashboard") {
 			dashboard.ServeHTTP(w, r)
@@ -46,6 +50,9 @@ func NewRouter(control, proxy, dashboard http.Handler) http.Handler {
 		if id == "" {
 			control.ServeHTTP(w, r)
 			return
+		}
+		if onActivity != nil {
+			onActivity(id)
 		}
 		proxy.ServeHTTP(w, r)
 	})

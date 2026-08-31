@@ -56,6 +56,7 @@ type sandboxResponse struct {
 	Metadata           map[string]string `json:"metadata,omitempty"`
 	StartedAt          time.Time         `json:"startedAt"`
 	EndAt              time.Time         `json:"endAt"`
+	LastActiveAt       time.Time         `json:"lastActiveAt,omitempty"`
 }
 
 type sandboxDetailResponse struct {
@@ -68,6 +69,7 @@ type sandboxDetailResponse struct {
 	Network             sandboxNetworkConfig `json:"network"`
 	AllowInternetAccess bool                 `json:"allowInternetAccess"`
 	EnvVars             map[string]string    `json:"envVars,omitempty"`
+	LastActiveAt        time.Time            `json:"lastActiveAt"`
 }
 
 type sandboxLifecycle struct {
@@ -549,7 +551,8 @@ func toSandboxResponse(manager sandboxManager, provider versionProvider, sbx *sa
 		Domain:             manager.Domain(),
 		Metadata:           sbx.Metadata,
 		StartedAt:          sbx.CreatedAt,
-		EndAt:              sbx.ExpiresAt,
+		EndAt:              sbx.ExpiresAt(),
+		LastActiveAt:       sbx.LastActiveAt,
 	}
 }
 
@@ -567,6 +570,7 @@ func toSandboxDetailResponse(manager sandboxManager, provider versionProvider, s
 		Network:             sandboxNetworkConfig{AllowPublicTraffic: true, AllowOut: []string{}, DenyOut: []string{}},
 		AllowInternetAccess: true,
 		EnvVars:             sbx.EnvVars,
+		LastActiveAt:        sbx.LastActiveAt,
 	}
 	// Fall back to runtime stats for sandboxes created before this
 	// field existed (CPUCount/MemoryMB == 0 means "unlimited" on the

@@ -31,6 +31,13 @@ func (r *Runtime) Pause(ctx context.Context, sandboxID string) error {
 	if sandboxID == "" {
 		return fmt.Errorf("docker runtime: Pause: sandboxID is required")
 	}
+	inspect, err := r.cli.ContainerInspect(ctx, sandboxID, client.ContainerInspectOptions{})
+	if err != nil {
+		return fmt.Errorf("docker runtime: pause %q: inspect: %w", sandboxID, err)
+	}
+	if inspect.Container.State != nil && inspect.Container.State.Status == "paused" {
+		return nil
+	}
 	if _, err := r.cli.ContainerPause(ctx, sandboxID, client.ContainerPauseOptions{}); err != nil {
 		return fmt.Errorf("docker runtime: pause %q: %w", sandboxID, err)
 	}
@@ -42,6 +49,13 @@ func (r *Runtime) Pause(ctx context.Context, sandboxID string) error {
 func (r *Runtime) Unpause(ctx context.Context, sandboxID string) error {
 	if sandboxID == "" {
 		return fmt.Errorf("docker runtime: Unpause: sandboxID is required")
+	}
+	inspect, err := r.cli.ContainerInspect(ctx, sandboxID, client.ContainerInspectOptions{})
+	if err != nil {
+		return fmt.Errorf("docker runtime: unpause %q: inspect: %w", sandboxID, err)
+	}
+	if inspect.Container.State != nil && inspect.Container.State.Status == "running" {
+		return nil
 	}
 	if _, err := r.cli.ContainerUnpause(ctx, sandboxID, client.ContainerUnpauseOptions{}); err != nil {
 		return fmt.Errorf("docker runtime: unpause %q: %w", sandboxID, err)
