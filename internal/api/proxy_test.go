@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -304,5 +305,58 @@ func TestProxyStreamsResponse(t *testing.T) {
 	}
 	if gap := t2 - t1; gap < chunkDelay-50*time.Millisecond {
 		t.Errorf("chunks too close together: t1=%v t2=%v gap=%v want>=%v", t1, t2, gap, chunkDelay-50*time.Millisecond)
+	}
+}
+
+// TestProxyStreamsResponseWhileRequestBodyInFlight covers a response that
+// starts before the transport has finished forwarding the request body. Go's
+// HTTP/1 server closes the inbound body when the response starts unless the
+// handler enables full duplex; that body is the outbound one too, so the
+// transport's write fails, it drops the upstream connection and the client
+// sees the response cut off mid-stream (golang/go#40747). Repeated because
+// each attempt only loses that race some of the time.
+func TestProxyStreamsResponseWhileRequestBodyInFlight(t *testing.T) {
+	const body = "0123456789"
+
+	host, port, closeBackend := newBackend(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := http.NewResponseController(w).EnableFullDuplex(); err != nil {
+			t.Errorf("backend full duplex: %v", err)
+		}
+		w.WriteHeader(200)
+		_, _ = w.Write([]byte("start\n"))
+		w.(http.Flusher).Flush()
+		got, err := io.ReadAll(r.Body)
+		if err != nil || string(got) != body {
+			t.Errorf("backend body = %q, %v", got, err)
+		}
+		_, _ = w.Write([]byte("end\n"))
+	}))
+	defer closeBackend()
+
+	mgr := &fakeLookup{byID: map[string]*sandbox.Sandbox{"isb_d": {ID: "isb_d"}}}
+	rt := &fakeResolver{host: host, port: port}
+	front := httptest.NewServer(NewProxy(mgr, rt))
+	defer front.Close()
+
+	for i := range 20 {
+		pr, pw := io.Pipe()
+		go func() {
+			time.Sleep(10 * time.Millisecond)
+			_, _ = pw.Write([]byte(body))
+			_ = pw.Close()
+		}()
+		req, _ := http.NewRequest("POST", front.URL+"/process.Process/Start", pr)
+		req.ContentLength = int64(len(body))
+		req.Header.Set(HeaderSandboxID, "isb_d")
+
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatalf("attempt %d: request: %v", i, err)
+		}
+		got, err := io.ReadAll(resp.Body)
+		_ = resp.Body.Close()
+		if err != nil || string(got) != "start\nend\n" {
+			t.Fatalf("attempt %d: response = %q, %v", i, got, err)
+		}
 	}
 }

@@ -94,6 +94,12 @@ func NewProxy(lookup SandboxLookup, resolver AgentResolver) http.Handler {
 			return
 		}
 
+		// Without full duplex, Go's HTTP/1 server closes the request body once the
+		// response starts — while the transport may still be forwarding it — which
+		// drops the upstream connection and cuts the stream (golang/go#40747).
+		// HTTP/2 is always full duplex and reports ErrNotSupported here.
+		_ = http.NewResponseController(w).EnableFullDuplex()
+
 		ctx := context.WithValue(r.Context(), proxyTargetKey{}, target)
 		rp.ServeHTTP(w, r.WithContext(ctx))
 	})
