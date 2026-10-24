@@ -3,7 +3,7 @@
 All notable changes to edvabe land here. Format roughly follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## Unreleased
+## v0.4.1 — 2026-10-24
 
 ### Fixed
 
