@@ -5,6 +5,18 @@ All notable changes to edvabe land here. Format roughly follows
 
 ## Unreleased
 
+### Fixed
+
+- **Sandbox proxy no longer cuts streams that start while the request body
+  is still being relayed.** Go's HTTP/1 server closed the inbound request
+  body as soon as the proxied response began. When the backend answered
+  before the transport's final EOF read of that body (envd's Connect
+  `process.Process/Start` does this when the host is busy), the transport
+  failed the request write, closed the upstream connection, and the client
+  saw the stream drop (`ReverseProxy read error during body copy: … use of
+  closed network connection`). The proxy now enables full duplex on every
+  request, so the body keeps flowing upstream.
+
 ## v0.4.0 — 2026-06-05
 
 ### Added
