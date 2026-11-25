@@ -8,7 +8,7 @@ import (
 
 // NewSandboxResolver adapts a Store so it satisfies
 // sandbox.TemplateResolver, which the sandbox manager consults at
-// Create time to turn `Sandbox.create('webmaster-chrome')` into an
+// Create time to turn `Sandbox.create('example-chrome')` into an
 // actual image tag.
 //
 // Resolution order (matches the Phase 3 scope):

@@ -202,10 +202,10 @@ func TestTranslateUserStep(t *testing.T) {
 	got := translateFixture(t, Input{
 		FromImage: "alpine:latest",
 		Steps: []template.Step{
-			{Type: "USER", Args: []string{"webmaster"}},
+			{Type: "USER", Args: []string{"builder"}},
 		},
 	})
-	if !strings.Contains(got, "USER webmaster\n") {
+	if !strings.Contains(got, "USER builder\n") {
 		t.Fatalf("missing USER:\n%s", got)
 	}
 }
@@ -262,8 +262,8 @@ func TestTranslateForceEmitsCacheBust(t *testing.T) {
 	}
 }
 
-func TestTranslateWebmasterChromeShape(t *testing.T) {
-	// A condensed approximation of the webmaster chrome template
+func TestTranslateChromeTemplateShape(t *testing.T) {
+	// A condensed approximation of an example Chrome template
 	// shape, covering aptInstall (RUN as root), copy with chown/mode,
 	// workdir, user switch, and a ready user. Exercises the sandwich
 	// logic and COPY flag handling in one fixture.
