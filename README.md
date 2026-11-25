@@ -140,7 +140,8 @@ edvabe version                                      # print version
 
 ```sh
 make test                             # go test ./...
-make test-e2e-python                  # Python SDK E2E (create, commands, files, pty, watch)
+make test-e2e-python                  # Python SDK E2E (create, connect, commands, files, pty, watch)
+make test-e2e-python E2E_PY_SDK=2.20.0 # same suite against another e2b release (default 2.64.0)
 make test-e2e-ts                      # TypeScript SDK E2E
 make test-e2e-code-interpreter-python # code interpreter Python E2E
 make test-e2e-code-interpreter-ts     # code interpreter TypeScript E2E

@@ -5,7 +5,9 @@ PKG    := ./cmd/edvabe
 
 E2E_PORT   ?= 3000
 E2E_PY_DIR := test/e2e/python
-E2E_PY_VENV:= $(E2E_PY_DIR)/.venv
+# Python SDK release the suite runs against; one venv per release.
+E2E_PY_SDK ?= 2.64.0
+E2E_PY_VENV:= $(E2E_PY_DIR)/.venv-e2b-$(E2E_PY_SDK)
 E2E_TS_DIR := test/e2e/ts
 
 build:
@@ -33,7 +35,7 @@ test-e2e-python: build
 		echo "+ creating venv at $(E2E_PY_VENV)"; \
 		python3 -m venv $(E2E_PY_VENV); \
 		$(E2E_PY_VENV)/bin/pip install --quiet --upgrade pip; \
-		$(E2E_PY_VENV)/bin/pip install --quiet -r $(E2E_PY_DIR)/requirements.txt; \
+		$(E2E_PY_VENV)/bin/pip install --quiet -r $(E2E_PY_DIR)/requirements.txt "e2b==$(E2E_PY_SDK)"; \
 	fi; \
 	LOG=$$(mktemp -t edvabe-e2e.XXXXXX.log); \
 	echo "+ starting edvabe serve --port $(E2E_PORT) (log: $$LOG)"; \
@@ -98,7 +100,7 @@ test-e2e-code-interpreter-python: build
 		echo "+ creating venv at $(E2E_PY_VENV)"; \
 		python3 -m venv $(E2E_PY_VENV); \
 		$(E2E_PY_VENV)/bin/pip install --quiet --upgrade pip; \
-		$(E2E_PY_VENV)/bin/pip install --quiet -r $(E2E_PY_DIR)/requirements.txt; \
+		$(E2E_PY_VENV)/bin/pip install --quiet -r $(E2E_PY_DIR)/requirements.txt "e2b==$(E2E_PY_SDK)"; \
 	fi; \
 	LOG=$$(mktemp -t edvabe-e2e.XXXXXX.log); \
 	echo "+ starting edvabe serve --port $(E2E_PORT) (log: $$LOG)"; \

@@ -2,9 +2,11 @@
 Phase 1 acceptance test for edvabe — exercises the same hot path the
 docs/06-phases.md acceptance criterion calls out:
 
-    create sandbox → run commands → read/write files → list → PTY → watch → kill
+    create sandbox → connect (running, paused) → run commands → read/write
+    files → list → PTY → watch → kill
 
-Expected environment (set by `make test-e2e-python` or manually):
+Expected environment (set by `make test-e2e-python [E2E_PY_SDK=<e2b version>]`
+or manually):
 
     E2B_API_URL=http://localhost:3000
     E2B_DOMAIN=localhost:3000
@@ -20,6 +22,7 @@ Each feature lives in its own test so a failure points at the specific
 layer to fix (proxy, envd-in-Docker behavior, control plane handler).
 """
 
+import datetime
 import threading
 import time
 
@@ -44,6 +47,29 @@ def test_create_and_kill():
     s = Sandbox.create(timeout=60)
     assert s.sandbox_id
     s.kill()
+
+
+# The data plane is checked through the original handle: SDK 2.20's
+# Sandbox.connect(id) returns a handle without the E2b-Sandbox-Id header, so
+# with E2B_SANDBOX_URL its envd calls cannot name the sandbox.
+def test_connect_running(sbx):
+    sbx.files.write("/home/user/kept.txt", "kept")
+    again = Sandbox.connect(sbx.sandbox_id)
+    assert again.sandbox_id == sbx.sandbox_id
+    # SDK 2.64 omits the connect timeout; it must not expire the sandbox.
+    end_at = again.get_info().end_at
+    assert end_at > datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(minutes=1)
+    assert sbx.files.read("/home/user/kept.txt") == "kept"
+
+
+def test_connect_paused(sbx):
+    sbx.files.write("/home/user/kept.txt", "kept")
+    sbx.pause()
+    again = Sandbox.connect(sbx.sandbox_id)
+    assert again.sandbox_id == sbx.sandbox_id
+    assert again.get_info().state.value == "running"
+    assert sbx.files.read("/home/user/kept.txt") == "kept"
+    assert sbx.commands.run("echo resumed").stdout.strip() == "resumed"
 
 
 def test_commands_run_echo(sbx):
