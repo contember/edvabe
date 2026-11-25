@@ -16,7 +16,8 @@ All notable changes to edvabe land here. Format roughly follows
   - `GET /templates/{templateID}/files/{hash}`: 200 → 201. A Python
     template with a `copy()` step failed with `Failed to get file upload
     link`.
-  - `POST /sandboxes/{sandboxID}/resume` (deprecated): 200 → 201.
+  - `POST /sandboxes/{sandboxID}/resume` (deprecated): 200 → 201, and
+    409 for a sandbox that is not paused (was 200).
   - `POST /sandboxes/{sandboxID}/connect`: 201 when it resumes a paused
     sandbox, 200 when the sandbox was already running (was always 200).
   - `GET /health`: 204 → 200.

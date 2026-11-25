@@ -1274,9 +1274,12 @@ func TestConnectResumesStoppedSandbox(t *testing.T) {
 		t.Fatal("precondition: sandbox should be stopped")
 	}
 
-	resumed, _, err := m.Connect(ctx, s.ID, 24*time.Hour)
+	resumed, wasResumed, err := m.Connect(ctx, s.ID, 24*time.Hour)
 	if err != nil {
 		t.Fatalf("Connect: %v", err)
+	}
+	if !wasResumed {
+		t.Error("Connect on a stopped sandbox did not report resumed")
 	}
 	if resumed.State != StateRunning {
 		t.Errorf("State = %q, want running", resumed.State)

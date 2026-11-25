@@ -3,6 +3,7 @@ package control
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"sort"
 	"strconv"
@@ -302,7 +303,8 @@ func pauseSandbox(manager sandboxManager, w http.ResponseWriter, r *http.Request
 // POST /sandboxes/{id}/resume in older releases; we route it through
 // the same unpause+renew path so legacy clients keep working. Body
 // shape matches timeoutRequest (the SDK sends its connect timeout
-// there), but an empty body is accepted.
+// there), but an empty body is accepted. Like E2B, it answers 409 for
+// a sandbox that is not paused.
 func resumeSandbox(manager sandboxManager, provider versionProvider, w http.ResponseWriter, r *http.Request) {
 	id := strings.TrimSuffix(sandboxIDFromPath(r.URL.Path), "/resume")
 	if id == "" || strings.Contains(id, "/") {
@@ -319,6 +321,15 @@ func resumeSandbox(manager sandboxManager, provider versionProvider, w http.Resp
 	timeout := time.Duration(req.Timeout) * time.Second
 	if timeout <= 0 {
 		timeout = sandbox.DefaultTimeout
+	}
+	current, err := manager.Get(id)
+	if err != nil {
+		writeManagerError(w, err)
+		return
+	}
+	if current.State != sandbox.StatePaused {
+		api.WriteError(w, http.StatusConflict, fmt.Sprintf("Sandbox %s is already running", id))
+		return
 	}
 	sbx, _, err := manager.Connect(r.Context(), id, timeout)
 	if err != nil {

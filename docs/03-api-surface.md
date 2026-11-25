@@ -299,7 +299,7 @@ host architecture only.
 | Method | Path | Notes |
 |---|---|---|
 | `POST`   | `/sandboxes/{sandboxID}/pause`     | 204. Implementation: `docker pause`. |
-| `POST`   | `/sandboxes/{sandboxID}/resume`    | 201 `Sandbox`. Deprecated — SDKs use `/connect`. |
+| `POST`   | `/sandboxes/{sandboxID}/resume`    | 201 `Sandbox`; 409 if the sandbox is not paused. Deprecated — SDKs use `/connect`. |
 | `POST`   | `/sandboxes/{sandboxID}/snapshots` | 201 `SnapshotInfo`. Body `{name?}`. Implementation: `docker commit` to an image tag. |
 | `GET`    | `/snapshots`                       | List. |
 | `POST`   | `/sandboxes/{sandboxID}/refreshes` | Legacy keepalive. Body `{duration}`. |
