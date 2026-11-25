@@ -43,7 +43,7 @@ func newFilesTestRouter(t *testing.T) (http.Handler, *template.Store, *filecache
 func createTplForFiles(t *testing.T, h http.Handler) string {
 	t.Helper()
 	rec := doJSON(t, h, http.MethodPost, "/v3/templates", map[string]any{"name": "files-probe"})
-	if rec.Code != http.StatusCreated {
+	if rec.Code != http.StatusAccepted {
 		t.Fatalf("setup create failed: %d %s", rec.Code, rec.Body.String())
 	}
 	var resp templateBuildResponse
@@ -56,7 +56,8 @@ func TestFileUploadLinkReportsAbsent(t *testing.T) {
 	tplID := createTplForFiles(t, h)
 	hash := filecache.HashBytes([]byte("some tar"))
 	rec := doJSON(t, h, http.MethodGet, "/templates/"+tplID+"/files/"+hash, nil)
-	if rec.Code != http.StatusOK {
+	// E2B answers 201; the Python SDK parses no other 2xx.
+	if rec.Code != http.StatusCreated {
 		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
 	}
 	var resp fileUploadLinkResponse
@@ -78,6 +79,9 @@ func TestFileUploadLinkReportsPresent(t *testing.T) {
 		t.Fatal(err)
 	}
 	rec := doJSON(t, h, http.MethodGet, "/templates/"+tplID+"/files/"+hash, nil)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
 	var resp fileUploadLinkResponse
 	_ = json.NewDecoder(rec.Body).Decode(&resp)
 	if !resp.Present {

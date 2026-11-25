@@ -18,7 +18,7 @@ type sandboxManager interface {
 	List() []*sandbox.Sandbox
 	Destroy(ctx context.Context, id string) error
 	SetTimeout(id string, timeout time.Duration) error
-	Connect(ctx context.Context, id string, timeout time.Duration) (*sandbox.Sandbox, error)
+	Connect(ctx context.Context, id string, timeout time.Duration) (*sandbox.Sandbox, bool, error)
 	Pause(ctx context.Context, id string) error
 	Snapshot(ctx context.Context, id, name string) (*sandbox.SnapshotInfo, error)
 	Domain() string

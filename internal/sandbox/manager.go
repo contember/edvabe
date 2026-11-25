@@ -478,13 +478,14 @@ func (m *Manager) SetTimeout(id string, timeout time.Duration) error {
 // snapshot. A paused sandbox is resumed through the runtime: frozen
 // sandboxes get `docker unpause` (instant), stopped ones get `docker
 // start` followed by a fresh agent Ping + InitAgent so envd has the
-// access token again.
-func (m *Manager) Connect(ctx context.Context, id string, timeout time.Duration) (*Sandbox, error) {
+// access token again. resumed reports whether the sandbox was paused,
+// which the API answers with 201 instead of 200.
+func (m *Manager) Connect(ctx context.Context, id string, timeout time.Duration) (s *Sandbox, resumed bool, err error) {
 	m.mu.Lock()
 	s, ok := m.sandboxes[id]
 	if !ok {
 		m.mu.Unlock()
-		return nil, ErrNotFound
+		return nil, false, ErrNotFound
 	}
 	now := m.clock.Now()
 	// ExpiresAt tracks the running-sandbox TTL. Paused sandboxes have
@@ -493,7 +494,7 @@ func (m *Manager) Connect(ctx context.Context, id string, timeout time.Duration)
 	// otherwise any pause that outlives the original TTL is un-resumable.
 	if s.State != StatePaused && !s.ExpiresAt.After(now) {
 		m.mu.Unlock()
-		return nil, ErrExpired
+		return nil, false, ErrExpired
 	}
 	priorState := s.State
 	priorMode := s.PauseMode
@@ -501,17 +502,17 @@ func (m *Manager) Connect(ctx context.Context, id string, timeout time.Duration)
 	m.mu.Unlock()
 
 	if priorState != StatePaused {
-		return s, nil
+		return s, false, nil
 	}
 
 	switch priorMode {
 	case PauseStopped:
 		if err := m.resumeStopped(ctx, s); err != nil {
-			return nil, fmt.Errorf("sandbox: connect %q: resume stopped: %w", id, err)
+			return nil, false, fmt.Errorf("sandbox: connect %q: resume stopped: %w", id, err)
 		}
 	default:
 		if err := m.rt.Unpause(ctx, id); err != nil {
-			return nil, fmt.Errorf("sandbox: connect %q: unpause: %w", id, err)
+			return nil, false, fmt.Errorf("sandbox: connect %q: unpause: %w", id, err)
 		}
 	}
 
@@ -520,7 +521,7 @@ func (m *Manager) Connect(ctx context.Context, id string, timeout time.Duration)
 	s.PauseMode = ""
 	s.PausedAt = time.Time{}
 	m.mu.Unlock()
-	return s, nil
+	return s, true, nil
 }
 
 // resumeStopped boots a demoted sandbox: `docker start`, re-resolve the

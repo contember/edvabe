@@ -63,7 +63,9 @@ func getFileUploadLink(
 		}
 		resp.URL = fmt.Sprintf("%s/_upload/%s?token=%s", strings.TrimRight(base, "/"), hash, token)
 	}
+	// E2B answers 201 here even though it is a GET; the Python client parses no other 2xx.
 	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
 	_ = json.NewEncoder(w).Encode(resp)
 }
 

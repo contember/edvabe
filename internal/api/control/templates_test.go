@@ -58,7 +58,8 @@ func TestCreateTemplateHappyPath(t *testing.T) {
 		"name":     "probe",
 		"memoryMB": 1024,
 	})
-	if rec.Code != http.StatusCreated {
+	// The Python SDK parses only 202 and fails Template.build() otherwise.
+	if rec.Code != http.StatusAccepted {
 		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
 	}
 	var resp templateBuildResponse
@@ -79,7 +80,7 @@ func TestCreateTemplateHappyPath(t *testing.T) {
 func TestCreateTemplateLegacyPath(t *testing.T) {
 	h, _ := newTemplateTestRouter(t)
 	rec := doJSON(t, h, http.MethodPost, "/templates", map[string]any{"name": "legacy"})
-	if rec.Code != http.StatusCreated {
+	if rec.Code != http.StatusAccepted {
 		t.Fatalf("legacy POST /templates: status=%d body=%s", rec.Code, rec.Body.String())
 	}
 }
@@ -99,7 +100,7 @@ func TestCreateTemplateDuplicateAliasReusesExisting(t *testing.T) {
 	_ = json.NewDecoder(rec1.Body).Decode(&first)
 
 	rec2 := doJSON(t, h, http.MethodPost, "/v3/templates", map[string]any{"name": "dup"})
-	if rec2.Code != http.StatusCreated {
+	if rec2.Code != http.StatusAccepted {
 		t.Fatalf("status=%d body=%s", rec2.Code, rec2.Body.String())
 	}
 	var second templateBuildResponse

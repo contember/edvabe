@@ -255,12 +255,15 @@ func connectSandbox(manager sandboxManager, provider versionProvider, w http.Res
 		api.WriteError(w, http.StatusBadRequest, "invalid JSON body")
 		return
 	}
-	sbx, err := manager.Connect(r.Context(), id, time.Duration(req.Timeout)*time.Second)
+	sbx, resumed, err := manager.Connect(r.Context(), id, time.Duration(req.Timeout)*time.Second)
 	if err != nil {
 		writeManagerError(w, err)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
+	if resumed {
+		w.WriteHeader(http.StatusCreated)
+	}
 	if err := json.NewEncoder(w).Encode(toSandboxResponse(manager, provider, sbx)); err != nil {
 		api.WriteError(w, http.StatusInternalServerError, "encode response")
 		return
@@ -317,12 +320,13 @@ func resumeSandbox(manager sandboxManager, provider versionProvider, w http.Resp
 	if timeout <= 0 {
 		timeout = sandbox.DefaultTimeout
 	}
-	sbx, err := manager.Connect(r.Context(), id, timeout)
+	sbx, _, err := manager.Connect(r.Context(), id, timeout)
 	if err != nil {
 		writeManagerError(w, err)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
 	if err := json.NewEncoder(w).Encode(toSandboxResponse(manager, provider, sbx)); err != nil {
 		api.WriteError(w, http.StatusInternalServerError, "encode response")
 		return
