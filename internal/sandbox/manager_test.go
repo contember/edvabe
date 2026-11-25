@@ -344,9 +344,12 @@ func TestConnectExtendsTimeout(t *testing.T) {
 	}
 
 	clk.Advance(20 * time.Second)
-	got, err := m.Connect(ctx, s.ID, 60*time.Second)
+	got, wasResumed, err := m.Connect(ctx, s.ID, 60*time.Second)
 	if err != nil {
 		t.Fatalf("Connect: %v", err)
+	}
+	if wasResumed {
+		t.Error("Connect on a running sandbox reported resumed")
 	}
 	if got.ID != s.ID {
 		t.Errorf("Connect returned %q, want %q", got.ID, s.ID)
@@ -366,14 +369,14 @@ func TestConnectExpired(t *testing.T) {
 		t.Fatalf("Create: %v", err)
 	}
 	clk.Advance(31 * time.Second)
-	if _, err := m.Connect(ctx, s.ID, 60*time.Second); !errors.Is(err, ErrExpired) {
+	if _, _, err := m.Connect(ctx, s.ID, 60*time.Second); !errors.Is(err, ErrExpired) {
 		t.Errorf("Connect expired = %v, want ErrExpired", err)
 	}
 }
 
 func TestConnectMissing(t *testing.T) {
 	m, _ := newTestManager(t, newFakeClock(time.Now()))
-	if _, err := m.Connect(context.Background(), "isb_missing", 30*time.Second); !errors.Is(err, ErrNotFound) {
+	if _, _, err := m.Connect(context.Background(), "isb_missing", 30*time.Second); !errors.Is(err, ErrNotFound) {
 		t.Errorf("Connect missing = %v, want ErrNotFound", err)
 	}
 }
@@ -647,9 +650,12 @@ func TestConnectUnpausesPausedSandbox(t *testing.T) {
 		t.Fatal("runtime not paused after Pause")
 	}
 
-	resumed, err := m.Connect(ctx, s.ID, 2*time.Minute)
+	resumed, wasResumed, err := m.Connect(ctx, s.ID, 2*time.Minute)
 	if err != nil {
 		t.Fatalf("Connect: %v", err)
+	}
+	if !wasResumed {
+		t.Error("Connect on a paused sandbox did not report resumed")
 	}
 	if rt.IsPaused(s.ID) {
 		t.Error("runtime still paused after Connect")
@@ -678,7 +684,7 @@ func TestConnectResumesPausedSandboxPastOriginalTTL(t *testing.T) {
 	}
 	clk.Advance(5 * time.Minute) // well past the 30s TTL
 
-	resumed, err := m.Connect(ctx, s.ID, 2*time.Minute)
+	resumed, _, err := m.Connect(ctx, s.ID, 2*time.Minute)
 	if err != nil {
 		t.Fatalf("Connect on paused+past-TTL sandbox: %v", err)
 	}
@@ -769,7 +775,7 @@ func TestRehydrateReconstructsFromExistingContainers(t *testing.T) {
 	// Paused sandbox should be resumable even though its original TTL
 	// has lapsed (from the earlier fix; rehydration gives ExpiresAt in
 	// the past on purpose for paused sandboxes).
-	if _, err := m2.Connect(ctx, created.ID, time.Minute); err != nil {
+	if _, _, err := m2.Connect(ctx, created.ID, time.Minute); err != nil {
 		t.Errorf("Connect on rehydrated paused sandbox: %v", err)
 	}
 }
@@ -822,7 +828,7 @@ func TestRehydrateResumesStoppedSandbox(t *testing.T) {
 		t.Errorf("AgentHost for stopped = %q, want empty", got.AgentHost)
 	}
 
-	resumed, err := m2.Connect(ctx, created.ID, time.Minute)
+	resumed, _, err := m2.Connect(ctx, created.ID, time.Minute)
 	if err != nil {
 		t.Fatalf("Connect on stopped rehydrated sandbox: %v", err)
 	}
@@ -1268,9 +1274,12 @@ func TestConnectResumesStoppedSandbox(t *testing.T) {
 		t.Fatal("precondition: sandbox should be stopped")
 	}
 
-	resumed, err := m.Connect(ctx, s.ID, 24*time.Hour)
+	resumed, wasResumed, err := m.Connect(ctx, s.ID, 24*time.Hour)
 	if err != nil {
 		t.Fatalf("Connect: %v", err)
+	}
+	if !wasResumed {
+		t.Error("Connect on a stopped sandbox did not report resumed")
 	}
 	if resumed.State != StateRunning {
 		t.Errorf("State = %q, want running", resumed.State)

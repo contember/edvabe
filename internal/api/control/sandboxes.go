@@ -3,6 +3,7 @@ package control
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"sort"
 	"strconv"
@@ -255,12 +256,15 @@ func connectSandbox(manager sandboxManager, provider versionProvider, w http.Res
 		api.WriteError(w, http.StatusBadRequest, "invalid JSON body")
 		return
 	}
-	sbx, err := manager.Connect(r.Context(), id, time.Duration(req.Timeout)*time.Second)
+	sbx, resumed, err := manager.Connect(r.Context(), id, time.Duration(req.Timeout)*time.Second)
 	if err != nil {
 		writeManagerError(w, err)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
+	if resumed {
+		w.WriteHeader(http.StatusCreated)
+	}
 	if err := json.NewEncoder(w).Encode(toSandboxResponse(manager, provider, sbx)); err != nil {
 		api.WriteError(w, http.StatusInternalServerError, "encode response")
 		return
@@ -299,7 +303,8 @@ func pauseSandbox(manager sandboxManager, w http.ResponseWriter, r *http.Request
 // POST /sandboxes/{id}/resume in older releases; we route it through
 // the same unpause+renew path so legacy clients keep working. Body
 // shape matches timeoutRequest (the SDK sends its connect timeout
-// there), but an empty body is accepted.
+// there), but an empty body is accepted. Like E2B, it answers 409 for
+// a sandbox that is not paused.
 func resumeSandbox(manager sandboxManager, provider versionProvider, w http.ResponseWriter, r *http.Request) {
 	id := strings.TrimSuffix(sandboxIDFromPath(r.URL.Path), "/resume")
 	if id == "" || strings.Contains(id, "/") {
@@ -317,12 +322,22 @@ func resumeSandbox(manager sandboxManager, provider versionProvider, w http.Resp
 	if timeout <= 0 {
 		timeout = sandbox.DefaultTimeout
 	}
-	sbx, err := manager.Connect(r.Context(), id, timeout)
+	current, err := manager.Get(id)
+	if err != nil {
+		writeManagerError(w, err)
+		return
+	}
+	if current.State != sandbox.StatePaused {
+		api.WriteError(w, http.StatusConflict, fmt.Sprintf("Sandbox %s is already running", id))
+		return
+	}
+	sbx, _, err := manager.Connect(r.Context(), id, timeout)
 	if err != nil {
 		writeManagerError(w, err)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
 	if err := json.NewEncoder(w).Encode(toSandboxResponse(manager, provider, sbx)); err != nil {
 		api.WriteError(w, http.StatusInternalServerError, "encode response")
 		return

@@ -77,7 +77,7 @@ clear 401. Real auth is intentionally off the table for a local dev tool.
 
 | Method | Path | Notes |
 |---|---|---|
-| `GET`    | `/health`                          | 204 No Content. |
+| `GET`    | `/health`                          | 200, empty body. |
 | `POST`   | `/sandboxes`                       | Create. See request/response shapes below. |
 | `GET`    | `/sandboxes/{sandboxID}`           | Returns `SandboxDetail`. 404 if gone. |
 | `GET`    | `/v2/sandboxes`                    | Paginated list. `?state=running,paused&limit=&nextToken=`. Response uses `x-next-token` header. |
@@ -274,8 +274,8 @@ systemd units replaced by direct process launches.
 | `GET`    | `/templates`                                 | List. Returns `[Template]`. |
 | `GET`    | `/templates/{templateID}`                    | Returns `TemplateWithBuilds`. |
 | `GET`    | `/templates/aliases/{alias}`                 | Returns `{templateID, public}`. |
-| `POST`   | `/v3/templates`                              | Create (declarative metadata only). Body `{name, tags[], cpuCount?, memoryMB?, skipCache?}`. Returns `{templateID, buildID, names, tags, aliases, public}`. |
-| `GET`    | `/templates/{templateID}/files/{hash}`       | Check file-context cache. Returns `{present: bool, url?}`. On miss the `url` points at edvabe's internal `/_upload/{hash}?token=...` handler. |
+| `POST`   | `/v3/templates`                              | Create (declarative metadata only). Body `{name, tags[], cpuCount?, memoryMB?, skipCache?}`. Returns 202 `{templateID, buildID, names, tags, aliases, public}`. |
+| `GET`    | `/templates/{templateID}/files/{hash}`       | Check file-context cache. Returns 201 `{present: bool, url?}` (201 on a GET, as E2B answers). On miss the `url` points at edvabe's internal `/_upload/{hash}?token=...` handler. |
 | `POST`   | `/_upload/{hash}?token=...`                  | Internal: SDK uploads a tar context blob to the content-addressed store. HMAC-token gated, short-lived. Not part of the public E2B surface — lives on the same listener for convenience. |
 | `POST`   | `/v2/templates/{templateID}/builds/{buildID}`| Start a build. Body `TemplateBuildStartV2 {fromImage?, fromTemplate?, fromImageRegistry?, steps:[{type, args, filesHash, force}], startCmd?, readyCmd?, force?}`. Returns 202. |
 | `GET`    | `/templates/{templateID}/builds/{buildID}/status` | Poll build status. Returns `{status: "waiting"\|"building"\|"ready"\|"error", reason?}`. |
@@ -299,7 +299,7 @@ host architecture only.
 | Method | Path | Notes |
 |---|---|---|
 | `POST`   | `/sandboxes/{sandboxID}/pause`     | 204. Implementation: `docker pause`. |
-| `POST`   | `/sandboxes/{sandboxID}/resume`    | 201 `Sandbox`. Deprecated — SDKs use `/connect`. |
+| `POST`   | `/sandboxes/{sandboxID}/resume`    | 201 `Sandbox`; 409 if the sandbox is not paused. Deprecated — SDKs use `/connect`. |
 | `POST`   | `/sandboxes/{sandboxID}/snapshots` | 201 `SnapshotInfo`. Body `{name?}`. Implementation: `docker commit` to an image tag. |
 | `GET`    | `/snapshots`                       | List. |
 | `POST`   | `/sandboxes/{sandboxID}/refreshes` | Legacy keepalive. Body `{duration}`. |

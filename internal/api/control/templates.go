@@ -139,8 +139,9 @@ func createTemplate(store templateStore, w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	// E2B answers 202; the generated Python client parses no other 2xx.
 	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusCreated)
+	w.WriteHeader(http.StatusAccepted)
 	_ = json.NewEncoder(w).Encode(templateBuildResponse{
 		TemplateID: tpl.ID,
 		BuildID:    buildID,

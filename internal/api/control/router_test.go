@@ -41,8 +41,8 @@ func TestHealthIsUnauthenticated(t *testing.T) {
 
 	newTestControlRouter(t).ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusNoContent {
-		t.Fatalf("status = %d, want 204", rec.Code)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
 	}
 }
 
@@ -260,7 +260,7 @@ func TestPauseSnapshotAndResume(t *testing.T) {
 	resumeReq.Header.Set("X-API-Key", "dev")
 	resumeRec := httptest.NewRecorder()
 	h.ServeHTTP(resumeRec, resumeReq)
-	if resumeRec.Code != http.StatusOK {
+	if resumeRec.Code != http.StatusCreated {
 		t.Fatalf("resume status = %d body=%s", resumeRec.Code, resumeRec.Body.String())
 	}
 
@@ -387,5 +387,67 @@ func TestConnectMissingSandboxReturns404(t *testing.T) {
 
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("status = %d, want 404", rec.Code)
+	}
+}
+
+func TestConnectResumingPausedSandboxReturns201(t *testing.T) {
+	h := newTestControlRouter(t)
+	do := func(method, path, body string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(method, path, strings.NewReader(body))
+		req.Header.Set("X-API-Key", "dev")
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		return rec
+	}
+
+	createRec := do(http.MethodPost, "/sandboxes", `{"templateID":"base","timeout":120}`)
+	if createRec.Code != http.StatusCreated {
+		t.Fatalf("create status = %d body=%s", createRec.Code, createRec.Body.String())
+	}
+	var created sandboxResponse
+	if err := json.NewDecoder(createRec.Body).Decode(&created); err != nil {
+		t.Fatalf("decode create: %v", err)
+	}
+	if rec := do(http.MethodPost, "/sandboxes/"+created.SandboxID+"/pause", ""); rec.Code != http.StatusNoContent {
+		t.Fatalf("pause status = %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	// E2B: 201 when the sandbox was resumed, 200 when it was already running.
+	connectRec := do(http.MethodPost, "/sandboxes/"+created.SandboxID+"/connect", `{"timeout":60}`)
+	if connectRec.Code != http.StatusCreated {
+		t.Fatalf("connect after pause status = %d, want 201 body=%s", connectRec.Code, connectRec.Body.String())
+	}
+	var connected sandboxResponse
+	if err := json.NewDecoder(connectRec.Body).Decode(&connected); err != nil {
+		t.Fatalf("decode connect: %v", err)
+	}
+	if connected.SandboxID != created.SandboxID {
+		t.Fatalf("connected sandbox = %q, want %q", connected.SandboxID, created.SandboxID)
+	}
+	if rec := do(http.MethodPost, "/sandboxes/"+created.SandboxID+"/connect", `{"timeout":60}`); rec.Code != http.StatusOK {
+		t.Fatalf("connect on running sandbox status = %d, want 200", rec.Code)
+	}
+}
+
+func TestResumeRunningSandboxReturns409(t *testing.T) {
+	h := newTestControlRouter(t)
+	createReq := httptest.NewRequest(http.MethodPost, "/sandboxes", strings.NewReader(`{"templateID":"base","timeout":120}`))
+	createReq.Header.Set("X-API-Key", "dev")
+	createRec := httptest.NewRecorder()
+	h.ServeHTTP(createRec, createReq)
+	if createRec.Code != http.StatusCreated {
+		t.Fatalf("create status = %d body=%s", createRec.Code, createRec.Body.String())
+	}
+	var created sandboxResponse
+	if err := json.NewDecoder(createRec.Body).Decode(&created); err != nil {
+		t.Fatalf("decode create: %v", err)
+	}
+
+	resumeReq := httptest.NewRequest(http.MethodPost, "/sandboxes/"+created.SandboxID+"/resume", strings.NewReader(`{"timeout":60}`))
+	resumeReq.Header.Set("X-API-Key", "dev")
+	resumeRec := httptest.NewRecorder()
+	h.ServeHTTP(resumeRec, resumeReq)
+	if resumeRec.Code != http.StatusConflict {
+		t.Fatalf("resume on running sandbox status = %d, want 409 body=%s", resumeRec.Code, resumeRec.Body.String())
 	}
 }

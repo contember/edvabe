@@ -3,6 +3,25 @@
 All notable changes to edvabe land here. Format roughly follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## Unreleased
+
+### Fixed
+
+- **Control-plane success codes now match E2B's API.** The generated
+  Python SDK client parses only the documented status code and treats any
+  other 2xx as a failure, so `Template.build()` failed with
+  `BuildException: Failed to request build`
+  ([#6](https://github.com/contember/edvabe/issues/6)).
+  - `POST /v3/templates` (and the legacy `POST /templates`): 201 → 202.
+  - `GET /templates/{templateID}/files/{hash}`: 200 → 201. A Python
+    template with a `copy()` step failed with `Failed to get file upload
+    link`.
+  - `POST /sandboxes/{sandboxID}/resume` (deprecated): 200 → 201, and
+    409 for a sandbox that is not paused (was 200).
+  - `POST /sandboxes/{sandboxID}/connect`: 201 when it resumes a paused
+    sandbox, 200 when the sandbox was already running (was always 200).
+  - `GET /health`: 204 → 200.
+
 ## v0.4.1 — 2026-10-24
 
 ### Fixed
