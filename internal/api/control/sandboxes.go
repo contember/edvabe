@@ -246,7 +246,8 @@ func setSandboxTimeout(manager sandboxManager, w http.ResponseWriter, r *http.Re
 }
 
 func connectSandbox(manager sandboxManager, provider versionProvider, w http.ResponseWriter, r *http.Request) {
-	id := strings.TrimSuffix(sandboxIDFromPath(r.URL.Path), "/connect")
+	// Serves both POST /sandboxes/{id}/connect and POST /v2/sandboxes/{id}/connect.
+	id := strings.TrimSuffix(sandboxIDFromPath(strings.TrimPrefix(r.URL.Path, "/v2")), "/connect")
 	if id == "" || strings.Contains(id, "/") {
 		http.NotFound(w, r)
 		return
@@ -319,9 +320,6 @@ func resumeSandbox(manager sandboxManager, provider versionProvider, w http.Resp
 		}
 	}
 	timeout := time.Duration(req.Timeout) * time.Second
-	if timeout <= 0 {
-		timeout = sandbox.DefaultTimeout
-	}
 	current, err := manager.Get(id)
 	if err != nil {
 		writeManagerError(w, err)

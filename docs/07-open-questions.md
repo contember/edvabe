@@ -130,6 +130,14 @@ host parsing. Cost is ~30 lines and covers every SDK version.
 
 **Confirm during Phase 1.** Intercept one request from each SDK to verify.
 
+**Resolved.** Both headers first and Host fallback are implemented. The
+header is not a reliable data-plane marker on its own: Python SDK 2.20
+sends it on the control-plane `POST /sandboxes/{id}/connect`, so the
+control plane's sandbox API paths win over it (see golden rule 4 in
+`CLAUDE.md` and `docs/03-api-surface.md`). The same release's
+`Sandbox.connect(id)` returns a handle without the header; with
+`E2B_SANDBOX_URL` its envd calls cannot name the sandbox.
+
 ## Q5: Timeout semantics for paused sandboxes
 
 **The question.** E2B sandbox timeouts fire `onTimeout: "kill"` or
