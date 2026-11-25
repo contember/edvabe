@@ -481,6 +481,10 @@ func (m *Manager) SetTimeout(id string, timeout time.Duration) error {
 // access token again. resumed reports whether the sandbox was paused,
 // which the API answers with 201 instead of 200.
 func (m *Manager) Connect(ctx context.Context, id string, timeout time.Duration) (s *Sandbox, resumed bool, err error) {
+	// The SDKs may omit the timeout (Python 2.64 sends `{}`); E2B then applies its 300 s default.
+	if timeout <= 0 {
+		timeout = DefaultTimeout
+	}
 	m.mu.Lock()
 	s, ok := m.sandboxes[id]
 	if !ok {

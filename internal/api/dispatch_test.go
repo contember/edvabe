@@ -79,3 +79,64 @@ func TestRouterHeaderWinsOverHost(t *testing.T) {
 		t.Errorf("expected explicit header to win: got %q", got)
 	}
 }
+
+// Python SDK 2.20 sends the sandbox headers on POST /sandboxes/{id}/connect,
+// a control-plane call. The sandbox API paths must still reach the control plane.
+func TestRouterSandboxAPIWinsOverHeader(t *testing.T) {
+	paths := []string{
+		"/sandboxes",
+		"/sandboxes/isb_abc/connect",
+		"/v2/sandboxes",
+		"/v2/sandboxes/isb_abc/connect",
+	}
+	for _, path := range paths {
+		t.Run(path, func(t *testing.T) {
+			var hits struct{ control, proxy int }
+			ctrl := http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) { hits.control++ })
+			prox := http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) { hits.proxy++ })
+			h := NewRouter(ctrl, prox, nil)
+
+			req := httptest.NewRequest("POST", "http://localhost:3000"+path, nil)
+			req.Header.Set(HeaderSandboxID, "isb_abc")
+			req.Header.Set(HeaderSandboxPort, "49983")
+			h.ServeHTTP(httptest.NewRecorder(), req)
+
+			if hits.control != 1 || hits.proxy != 0 {
+				t.Errorf("hits = %+v, want {control:1,proxy:0}", hits)
+			}
+		})
+	}
+}
+
+// envd serves /health too; with the header it belongs to the sandbox.
+func TestRouterEnvdHealthWithHeaderGoesToProxy(t *testing.T) {
+	var hits struct{ control, proxy int }
+	ctrl := http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) { hits.control++ })
+	prox := http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) { hits.proxy++ })
+	h := NewRouter(ctrl, prox, nil)
+
+	req := httptest.NewRequest("GET", "http://localhost:3000/health", nil)
+	req.Header.Set(HeaderSandboxID, "isb_abc")
+	req.Header.Set(HeaderSandboxPort, "49983")
+	h.ServeHTTP(httptest.NewRecorder(), req)
+
+	if hits.control != 0 || hits.proxy != 1 {
+		t.Errorf("hits = %+v, want {control:0,proxy:1}", hits)
+	}
+}
+
+// A user service behind "<port>-<id>.<domain>" may serve any path, /sandboxes included.
+func TestRouterHostRoutedSandboxPathGoesToProxy(t *testing.T) {
+	var hits struct{ control, proxy int }
+	ctrl := http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) { hits.control++ })
+	prox := http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) { hits.proxy++ })
+	h := NewRouter(ctrl, prox, nil)
+
+	req := httptest.NewRequest("GET", "http://8080-isb_host.localhost:3000/sandboxes", nil)
+	req.Host = "8080-isb_host.localhost:3000"
+	h.ServeHTTP(httptest.NewRecorder(), req)
+
+	if hits.control != 0 || hits.proxy != 1 {
+		t.Errorf("hits = %+v, want {control:0,proxy:1}", hits)
+	}
+}

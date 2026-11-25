@@ -65,7 +65,9 @@ func NewRouter(opts RouterOptions) http.Handler {
 
 	sandboxHandler := api.RequireAPIKey(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
-		case r.Method == http.MethodPost && r.URL.Path == "/sandboxes":
+		// The v2 create and connect take the v1 bodies; NewSandboxV2 only
+		// drops the ignored "secure" field.
+		case r.Method == http.MethodPost && (r.URL.Path == "/sandboxes" || r.URL.Path == "/v2/sandboxes"):
 			createSandbox(opts.Manager, opts.Provider, w, r)
 		case r.Method == http.MethodGet && r.URL.Path == "/v2/sandboxes":
 			listSandboxes(opts.Manager, opts.Provider, w, r)

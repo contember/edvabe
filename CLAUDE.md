@@ -53,6 +53,10 @@ you need to violate one.
 
 4. **Route by `E2b-Sandbox-Id` / `E2b-Sandbox-Port` headers first**, fall
    back to parsing `Host: <port>-<id>.<rest>`. Never require wildcard DNS.
+   Exception: the control plane's sandbox API (`/sandboxes*`,
+   `/v2/sandboxes*`) wins over the header, because some SDKs (Python
+   2.20) send it on control-plane calls and envd serves no such path.
+   Host-based routing has no exception.
 
 5. **No real auth.** `X-API-Key` is required-but-not-validated on control
    plane; `X-Access-Token` is forwarded to envd unchanged. edvabe is a

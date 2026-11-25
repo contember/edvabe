@@ -36,6 +36,14 @@ envd REST + Connect   : /  when E2b-Sandbox-Id header is set (or Host has
 code-interpreter      : /  when E2b-Sandbox-Port == 49999
 ```
 
+The control plane's sandbox API (`/sandboxes`, `/sandboxes/*`,
+`/v2/sandboxes`, `/v2/sandboxes/*`) wins over the `E2b-Sandbox-Id`
+header. Python SDK 2.20 sends the header on the control-plane
+`POST /sandboxes/{id}/connect`; envd and the code-interpreter overlay
+serve no `/sandboxes` paths. Host-based routing has no such exception:
+a `<port>-<id>.<domain>` Host addresses a sandbox port, whose service
+may serve any path.
+
 To make the E2B SDKs resolve to edvabe, a client sets:
 
 ```sh
@@ -79,11 +87,13 @@ clear 401. Real auth is intentionally off the table for a local dev tool.
 |---|---|---|
 | `GET`    | `/health`                          | 200, empty body. |
 | `POST`   | `/sandboxes`                       | Create. See request/response shapes below. |
+| `POST`   | `/v2/sandboxes`                    | Create (Python SDK 2.64+). Body `NewSandboxV2` = `NewSandbox` without `secure`. 201 `Sandbox`. |
 | `GET`    | `/sandboxes/{sandboxID}`           | Returns `SandboxDetail`. 404 if gone. |
 | `GET`    | `/v2/sandboxes`                    | Paginated list. `?state=running,paused&limit=&nextToken=`. Response uses `x-next-token` header. |
 | `DELETE` | `/sandboxes/{sandboxID}`           | Kill. 204. |
 | `POST`   | `/sandboxes/{sandboxID}/timeout`   | Body `{timeout: seconds}`. Reset TTL from now. 204. |
-| `POST`   | `/sandboxes/{sandboxID}/connect`   | Reconnect/resume. Body `{timeout}`. 200 if already running, 201 if resumed from paused. |
+| `POST`   | `/sandboxes/{sandboxID}/connect`   | Reconnect/resume. Body `{timeout}`. 200 if already running, 201 if resumed from paused. An omitted timeout means 300 s. |
+| `POST`   | `/v2/sandboxes/{sandboxID}/connect` | Same as `/connect` (Python SDK 2.64+). Body `ConnectSandboxV2` `{timeout?, memory?}`; 2.64 sends `{}`. `memory` is ignored. |
 
 **`POST /sandboxes` request body** (`NewSandbox`):
 

@@ -359,6 +359,25 @@ func TestConnectExtendsTimeout(t *testing.T) {
 	}
 }
 
+func TestConnectWithoutTimeoutAppliesDefault(t *testing.T) {
+	clk := newFakeClock(time.Date(2026, 4, 15, 12, 0, 0, 0, time.UTC))
+	m, _ := newTestManager(t, clk)
+	ctx := context.Background()
+
+	s, err := m.Create(ctx, CreateOptions{Timeout: 30 * time.Second})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	got, _, err := m.Connect(ctx, s.ID, 0)
+	if err != nil {
+		t.Fatalf("Connect: %v", err)
+	}
+	if want := clk.Now().Add(DefaultTimeout); !got.ExpiresAt.Equal(want) {
+		t.Errorf("ExpiresAt = %v, want %v", got.ExpiresAt, want)
+	}
+}
+
 func TestConnectExpired(t *testing.T) {
 	clk := newFakeClock(time.Date(2026, 4, 15, 12, 0, 0, 0, time.UTC))
 	m, _ := newTestManager(t, clk)

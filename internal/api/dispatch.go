@@ -26,6 +26,13 @@ const (
 // the headers are populated so the proxy handler doesn't have to
 // re-parse the host. Requests with neither go to the control plane
 // unchanged.
+//
+// Exception: the control plane's sandbox API wins over the header. Some
+// SDKs (Python 2.20) send E2b-Sandbox-Id on control-plane calls such as
+// POST /sandboxes/{id}/connect; envd and the code-interpreter overlay
+// serve no /sandboxes paths. Host-based routing has no exception: a
+// "<port>-<id>.<domain>" Host addresses a sandbox port, which may serve
+// any path.
 func NewRouter(control, proxy, dashboard http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if dashboard != nil && strings.HasPrefix(r.URL.Path, "/dashboard") {
@@ -34,6 +41,10 @@ func NewRouter(control, proxy, dashboard http.Handler) http.Handler {
 		}
 
 		id := r.Header.Get(HeaderSandboxID)
+		if id != "" && isSandboxAPIPath(r.URL.Path) {
+			control.ServeHTTP(w, r)
+			return
+		}
 
 		if id == "" {
 			if p, sid, ok := parseHost(r.Host); ok {
@@ -49,4 +60,9 @@ func NewRouter(control, proxy, dashboard http.Handler) http.Handler {
 		}
 		proxy.ServeHTTP(w, r)
 	})
+}
+
+func isSandboxAPIPath(path string) bool {
+	return path == "/sandboxes" || strings.HasPrefix(path, "/sandboxes/") ||
+		path == "/v2/sandboxes" || strings.HasPrefix(path, "/v2/sandboxes/")
 }
