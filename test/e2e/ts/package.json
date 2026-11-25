@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "tsx --test test_basic.ts test_template_build.ts test_webmaster_chrome.ts",
+    "test": "tsx --test test_basic.ts test_template_build.ts test_external_template.ts",
     "test:code-interpreter": "tsx --test test_code_interpreter.ts"
   },
   "dependencies": {

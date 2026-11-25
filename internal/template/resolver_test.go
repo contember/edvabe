@@ -41,13 +41,13 @@ func TestResolverFindsByID(t *testing.T) {
 
 func TestResolverFindsByAlias(t *testing.T) {
 	s, _ := NewStore(Options{})
-	tpl, _ := s.Create(CreateOptions{Name: "webmaster-chrome"})
+	tpl, _ := s.Create(CreateOptions{Name: "example-chrome"})
 	_, _ = s.UpdateMeta(tpl.ID, func(t *Template) {
 		t.ImageTag = "edvabe/user-" + tpl.ID + ":latest"
 	})
 
 	r := NewSandboxResolver(s)
-	got, err := r.Resolve("webmaster-chrome")
+	got, err := r.Resolve("example-chrome")
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}

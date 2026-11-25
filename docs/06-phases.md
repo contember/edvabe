@@ -205,10 +205,10 @@ Plus the TypeScript equivalent.
 
 **Goal**: users can build custom templates using the E2B JS SDK's
 programmatic `Template()` builder (`template.ts` + `Template.build(...)`)
-and pause/snapshot sandboxes to save state. The driving consumer is
-webmaster, which defines templates in TypeScript (see
-`webmaster/containers/templates/chrome/template.ts`) and builds them
-against edvabe's control plane.
+and pause/snapshot sandboxes to save state. The driving consumer is a
+downstream project that defines templates in TypeScript (for example a
+Chrome template in a `template.ts` module) and builds them against
+edvabe's control plane.
 
 ### Scope (T3 endpoints)
 
@@ -224,7 +224,7 @@ required.
 - `POST /v3/templates` — create template record. Body
   `{name, tags[], cpuCount?, memoryMB?, skipCache?}`; returns
   `{templateID, buildID, names, tags, aliases, public}`. `name` is the
-  user-friendly handle (e.g. `webmaster-sandbox-chrome` or
+  user-friendly handle (e.g. `example-chrome` or
   `my-tmpl:v1`); it serves as both alias and tag.
 - `GET /templates/{templateID}/files/{hash}` — returns
   `{present: bool, url?: string}`. If not in the local file cache,
@@ -347,8 +347,8 @@ the build.
 
 **`fromImageRegistry` credentials.** Accept the credentials object and
 forward it to `docker build` via the Docker API's auth config. This is
-load-bearing only for private registries — for webmaster's public
-`oven/bun:slim` base it's a passthrough.
+load-bearing only for private registries — for a public base such as
+`oven/bun:slim` it's a passthrough.
 
 **Async builder state machine.** One goroutine per active build, owned
 by a `BuildManager` with a `map[buildID]*Build` under a mutex. States:
@@ -391,7 +391,7 @@ Once resolved, `Runtime.Create` is called with the resolved image tag
 plus `EDVABE_START_CMD` / `EDVABE_READY_CMD` env injected from
 template metadata. The sandbox manager then runs `readyCmd` probe
 before returning. This is the glue that makes
-`Sandbox.create(template='webmaster-sandbox-chrome')` actually launch
+`Sandbox.create(template='example-chrome')` actually launch
 the right container.
 
 **Resource fields (`cpuCount`, `memoryMB`).** Stored on the template
@@ -412,14 +412,13 @@ the caveat in `edvabe doctor` output.
   `NewSandbox.lifecycle.onTimeout == "pause"` on `POST /sandboxes`:
   when set, the sandbox manager calls `docker pause` on timeout
   instead of `docker rm --force`, and `/connect` resumes via
-  `docker unpause`. This is load-bearing for the webmaster consumer
-  (`BaseE2BSandbox.betaCreate(template, { autoPause: true, … })` in
-  `packages/worker/src/lib/sandbox/e2b-sandbox.ts`). Without it the
-  idle-pause + reconnect loop breaks the first time the sandbox times
-  out.
+  `docker unpause`. This is load-bearing for consumers that create
+  sandboxes with `Sandbox.betaCreate(template, { autoPause: true, … })`.
+  Without it their idle-pause + reconnect loop breaks the first time
+  the sandbox times out.
 - `Sandbox.betaCreate` / `Sandbox.betaPause` wire shapes — verify they
   match the `POST /sandboxes` and `POST /sandboxes/{id}/pause` the
-  stable SDK paths produce before implementing, since webmaster uses
+  stable SDK paths produce before implementing, since consumers use
   the beta flavor.
 
 #### Logs and metrics
@@ -441,7 +440,7 @@ runs the template's CMD again.
 
 Two flows must work end-to-end.
 
-**Flow A — programmatic Template SDK (webmaster-equivalent):**
+**Flow A — programmatic Template SDK (minimal example):**
 
 ```ts
 import { Template, defaultBuildLogger } from 'e2b'
@@ -469,10 +468,10 @@ const result2 = await sbx2.commands.run('echo resumed')
 assert(result2.exitCode === 0)
 ```
 
-**Flow B — the real `webmaster-sandbox-chrome` template** built against
-edvabe from `webmaster/containers/templates/chrome/build.ts` unchanged,
-then `Sandbox.create('webmaster-sandbox-chrome')` launches a working
-Chrome sandbox. This is the acceptance bar for "Phase 3 ships".
+**Flow B — a real-world Chrome template** from a downstream consumer,
+built against edvabe from its `template.ts` / `build.ts` unchanged, then
+`Sandbox.create(...)` on the built template launches a working Chrome
+sandbox. This is the acceptance bar for "Phase 3 ships".
 
 ---
 

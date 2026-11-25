@@ -469,8 +469,8 @@ func TestCreateUsesResolver(t *testing.T) {
 	clk := newFakeClock(time.Date(2026, 4, 15, 12, 0, 0, 0, time.UTC))
 	resolver := &fakeResolver{
 		resolutions: map[string]TemplateResolution{
-			"webmaster-chrome": {
-				ImageTag: "edvabe/user-tpl_wmx:latest",
+			"example-chrome": {
+				ImageTag: "edvabe/user-tpl_chrome:latest",
 				StartCmd: "/home/user/.chrome-start.sh",
 				ReadyCmd: "ss -tuln | grep :9222",
 			},
@@ -478,11 +478,11 @@ func TestCreateUsesResolver(t *testing.T) {
 	}
 	m, rt := newManagerWithResolver(t, clk, resolver)
 
-	sbx, err := m.Create(context.Background(), CreateOptions{TemplateID: "webmaster-chrome"})
+	sbx, err := m.Create(context.Background(), CreateOptions{TemplateID: "example-chrome"})
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
-	if got := rt.Image(sbx.ID); got != "edvabe/user-tpl_wmx:latest" {
+	if got := rt.Image(sbx.ID); got != "edvabe/user-tpl_chrome:latest" {
 		t.Fatalf("runtime received image %q", got)
 	}
 	if got := rt.StartCmd(sbx.ID); got != "/home/user/.chrome-start.sh" {

@@ -56,11 +56,11 @@ func TestStoreCreateAndGet(t *testing.T) {
 
 func TestStoreResolveAlias(t *testing.T) {
 	s, _ := newStore(t)
-	tpl, err := s.Create(CreateOptions{Name: "chrome", Alias: "webmaster-chrome"})
+	tpl, err := s.Create(CreateOptions{Name: "chrome", Alias: "example-chrome"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	got, err := s.ResolveAlias("webmaster-chrome")
+	got, err := s.ResolveAlias("example-chrome")
 	if err != nil {
 		t.Fatalf("ResolveAlias: %v", err)
 	}
