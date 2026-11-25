@@ -28,7 +28,8 @@ clean:
 	rm -rf bin coverage.out coverage.html
 
 # Python E2E: boot `edvabe serve`, wait for /health, run pytest, tear down.
-# Uses a local venv at test/e2e/python/.venv so it does not touch system Python.
+# Uses a local venv per SDK release (test/e2e/python/.venv-e2b-<E2E_PY_SDK>)
+# so it does not touch system Python.
 test-e2e-python: build
 	@set -e; \
 	if [ ! -x $(E2E_PY_VENV)/bin/pytest ]; then \

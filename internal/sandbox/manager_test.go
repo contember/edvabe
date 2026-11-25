@@ -378,6 +378,26 @@ func TestConnectWithoutTimeoutAppliesDefault(t *testing.T) {
 	}
 }
 
+func TestConnectNeverShortensRunningTTL(t *testing.T) {
+	clk := newFakeClock(time.Date(2026, 4, 15, 12, 0, 0, 0, time.UTC))
+	m, _ := newTestManager(t, clk)
+	ctx := context.Background()
+
+	s, err := m.Create(ctx, CreateOptions{Timeout: time.Hour})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	want := s.ExpiresAt
+
+	got, _, err := m.Connect(ctx, s.ID, 0)
+	if err != nil {
+		t.Fatalf("Connect: %v", err)
+	}
+	if !got.ExpiresAt.Equal(want) {
+		t.Errorf("ExpiresAt = %v, want the longer %v", got.ExpiresAt, want)
+	}
+}
+
 func TestConnectExpired(t *testing.T) {
 	clk := newFakeClock(time.Date(2026, 4, 15, 12, 0, 0, 0, time.UTC))
 	m, _ := newTestManager(t, clk)

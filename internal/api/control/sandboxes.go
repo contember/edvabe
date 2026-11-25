@@ -320,9 +320,6 @@ func resumeSandbox(manager sandboxManager, provider versionProvider, w http.Resp
 		}
 	}
 	timeout := time.Duration(req.Timeout) * time.Second
-	if timeout <= 0 {
-		timeout = sandbox.DefaultTimeout
-	}
 	current, err := manager.Get(id)
 	if err != nil {
 		writeManagerError(w, err)

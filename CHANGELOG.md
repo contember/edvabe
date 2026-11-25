@@ -13,12 +13,16 @@ All notable changes to edvabe land here. Format roughly follows
   failed. Both are now served like their v1 counterparts.
 - **`connect` without a timeout no longer expires the sandbox.** SDK 2.64
   sends `{}`; edvabe set the TTL to zero. An omitted timeout now means
-  E2B's default of 300 s.
+  the API default of 300 s, and, as on E2B, connect only extends a
+  running sandbox's TTL, never shortens it. `memory:false`
+  (`on_resume="reboot"`) is still ignored: a frozen sandbox resumes with
+  its memory.
 - **Python SDK 2.20 `Sandbox.connect()` reaches the control plane.** The
   SDK sends `E2b-Sandbox-Id` on `POST /sandboxes/{sandboxID}/connect`,
   and the header-first dispatcher proxied it to envd (401 on a running
   sandbox, a hang on a paused one). The control plane's sandbox API
-  paths now win over the header; Host-based routing is unchanged.
+  paths now win over a header naming envd, the code interpreter or no
+  port; user-service ports and Host-based routing are unchanged.
   Known limit: 2.20's `Sandbox.connect(id)` returns a handle without the
   header, so with `E2B_SANDBOX_URL` its own envd calls still cannot reach
   the sandbox; the handle from `Sandbox.create()` keeps working.

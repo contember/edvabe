@@ -140,3 +140,20 @@ func TestRouterHostRoutedSandboxPathGoesToProxy(t *testing.T) {
 		t.Errorf("hits = %+v, want {control:0,proxy:1}", hits)
 	}
 }
+
+// A header naming a user port addresses a user service, which may serve any path.
+func TestRouterHeaderRoutedUserPortSandboxPathGoesToProxy(t *testing.T) {
+	var hits struct{ control, proxy int }
+	ctrl := http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) { hits.control++ })
+	prox := http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) { hits.proxy++ })
+	h := NewRouter(ctrl, prox, nil)
+
+	req := httptest.NewRequest("GET", "http://localhost:3000/sandboxes", nil)
+	req.Header.Set(HeaderSandboxID, "isb_abc")
+	req.Header.Set(HeaderSandboxPort, "8080")
+	h.ServeHTTP(httptest.NewRecorder(), req)
+
+	if hits.control != 0 || hits.proxy != 1 {
+		t.Errorf("hits = %+v, want {control:0,proxy:1}", hits)
+	}
+}

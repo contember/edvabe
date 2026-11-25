@@ -196,9 +196,7 @@ func NewRouter(opts RouterOptions) http.Handler {
 		switch {
 		case r.Method == http.MethodGet && r.URL.Path == "/health":
 			health(w, r)
-		case r.URL.Path == "/sandboxes" || r.URL.Path == "/v2/sandboxes" ||
-			strings.HasPrefix(r.URL.Path, "/sandboxes/") ||
-			strings.HasPrefix(r.URL.Path, "/v2/sandboxes/"):
+		case api.IsSandboxAPIPath(r.URL.Path):
 			sandboxHandler.ServeHTTP(w, r)
 		case strings.HasPrefix(r.URL.Path, "/_upload/"):
 			if !filesEnabled {

@@ -439,6 +439,14 @@ func Router(control, proxy http.Handler) http.Handler {
         port := r.Header.Get("E2b-Sandbox-Port")
         id := r.Header.Get("E2b-Sandbox-Id")
 
+        // The sandbox API (/sandboxes, /v2/sandboxes and below) wins over
+        // a header naming envd, the code interpreter or no port.
+        if id != "" && IsSandboxAPIPath(r.URL.Path) &&
+            (port == "" || port == "49983" || port == "49999") {
+            control.ServeHTTP(w, r)
+            return
+        }
+
         if id == "" {
             if p, sid, ok := parseHost(r.Host); ok {
                 port, id = p, sid
