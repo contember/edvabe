@@ -6,7 +6,8 @@
  * and boots a sandbox from it. This is the Phase 3 ship gate.
  *
  * Requires EXTERNAL_TEMPLATE_PATH pointing at a TypeScript module that
- * exports `template` (an E2B `Template()` builder). Skipped when unset.
+ * exports `template` (an E2B `Template()` builder). Use an absolute path:
+ * `make test-e2e-ts` runs from test/e2e/ts. Skipped when unset.
  *
  * Expected environment (set by `make test-e2e-ts` or manually):
  *

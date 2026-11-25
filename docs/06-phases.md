@@ -469,7 +469,7 @@ assert(result2.exitCode === 0)
 ```
 
 **Flow B — a real-world Chrome template** from a downstream consumer,
-built against edvabe from its `template.ts` unchanged, then
+built against edvabe from its `template.ts` / `build.ts` unchanged, then
 `Sandbox.create(...)` on the built template launches a working Chrome
 sandbox. This is the acceptance bar for "Phase 3 ships".
 
